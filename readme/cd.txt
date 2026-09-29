@@ -1,0 +1,16 @@
+
+Launching lib\main.dart on Chrome in debug mode...
+lib/main.dart:5:8: Error: Error when reading 'lib/screens/home_screen.dart': The system cannot find the path specified
+import 'screens/home_screen.dart';
+       ^
+lib/main.dart:33:13: Error: The method 'HomeScreen' isn't defined for the type 'ExpenseTrackerApp'.
+ - 'ExpenseTrackerApp' is from 'package:expense_tracker/main.dart' ('lib/main.dart').
+Try correcting the name to the name of an existing method, or defining a method named 'HomeScreen'.
+      home: HomeScreen(),
+            ^^^^^^^^^^
+Waiting for connection from debug service on Chrome...             26.4s
+Failed to compile application.
+
+
+used copilot to find error,i looked but i couldnot find missing letter
+it happened because file structure likely nested project when cloning git repo
