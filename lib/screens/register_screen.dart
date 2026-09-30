@@ -44,7 +44,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
     });
 
     try {
-      // Create Firebase account.
       await _authService.register(
         email: _emailController.text.trim(),
         password: _passwordController.text,
@@ -52,7 +51,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
       if (!mounted) return;
 
-      // Show success message.
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
@@ -63,15 +61,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         ),
       );
 
-      /*
-       IMPORTANT:
-       Do NOT use Navigator.push() here.
-
-       Firebase automatically signs the new user in.
-       AuthGate in main.dart detects the authentication
-       change and automatically displays HomeScreen.
-       We just need to pop this registration screen off the stack.
-      */
+      // Pop registration screen to show home screen
       Navigator.pop(context);
     } on FirebaseAuthException catch (e) {
       if (!mounted) return;
@@ -152,7 +142,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 crossAxisAlignment:
                     CrossAxisAlignment.stretch,
                 children: [
-                  // ICON
                   const Icon(
                     Icons.person_add_alt_1,
                     size: 70,
@@ -160,7 +149,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
                   const SizedBox(height: 20),
 
-                  // TITLE
                   const Text(
                     'Create your account',
                     textAlign: TextAlign.center,
@@ -182,7 +170,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
                   const SizedBox(height: 30),
 
-                  // EMAIL
                   TextFormField(
                     controller: _emailController,
                     keyboardType:
@@ -218,7 +205,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
                   const SizedBox(height: 16),
 
-                  // PASSWORD
                   TextFormField(
                     controller: _passwordController,
                     obscureText: _obscurePassword,
@@ -260,7 +246,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
                   const SizedBox(height: 16),
 
-                  // CONFIRM PASSWORD
                   TextFormField(
                     controller:
                         _confirmPasswordController,
@@ -309,7 +294,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
                   const SizedBox(height: 24),
 
-                  // CREATE ACCOUNT BUTTON
                   SizedBox(
                     height: 52,
                     child: FilledButton(
@@ -337,7 +321,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
                   const SizedBox(height: 20),
 
-                  // BACK TO LOGIN
                   TextButton(
                     onPressed: _isLoading
                         ? null

@@ -1,219 +1,73 @@
-# Expense Tracker Mobile App
+# Expense Tracker
 **apk** : https://drive.google.com/file/d/10wniyOuHglNdZfIENvttGDA2sfJScnqK/view?usp=sharing
 
-A Flutter-based mobile expense tracking application that allows users to securely manage and monitor their personal expenses.
+A Flutter-based mobile Expense Tracker application that allows users to securely manage their personal expenses using Firebase Authentication and Cloud Firestore.
 
-## Project Setup Instructions
+## Features
 
-### Prerequisites
+### 🔐 Authentication
 
-Make sure the following are installed:
-
-* Flutter SDK
-* Dart SDK
-* Android Studio or Visual Studio Code
-* Android Emulator or physical Android device
-* A Firebase account
-
-### 1. Clone the Repository
-
-```bash
-git clone <your-github-repository-url>
-cd expense_tracker
-```
-
-### 2. Install Dependencies
-
-Run:
-
-```bash
-flutter pub get
-```
-
-### 3. Firebase Configuration
-
-The application uses Firebase for authentication and cloud data storage.
-
-Firebase services used:
-
+* User registration with email and password
+* User login and logout
 * Firebase Authentication
-* Cloud Firestore
+* Authentication state persistence
+* Each user's expenses are isolated from other users
 
-Make sure the Firebase project is configured with the Flutter application.
+### 💰 Expense Management
 
-The project uses the generated:
+* Add new expenses
+* Edit existing expenses
+* Delete expenses
+* Expense title
+* Amount
+* Category
+* Date
+* Optional note
+* Input validation
 
-```text
-lib/firebase_options.dart
-```
+### 🔎 Search & Filtering
 
-### 4. Enable Email/Password Authentication
+* Search expenses by title
+* Filter by category
+* Filter by date range
+* Combine search and filters
+* Clear filters
 
-In the Firebase Console:
+### 📊 Expense Summary
 
-**Authentication → Sign-in method → Email/Password → Enable**
+* Current-month total spending
+* Filtered expense information
+* Expense count
 
-### 5. Configure Firestore
+### 📈 Expense Chart
 
-Create a Cloud Firestore database in the Firebase project.
+* Visual spending breakdown by category
+* Implemented using `fl_chart`
 
-The application stores expenses using a user-specific structure:
+### ☁️ Firebase
 
-```text
-users
- └── {userId}
-      └── expenses
-           └── {expenseId}
-```
+* Firebase Authentication for user accounts
+* Cloud Firestore for expense storage
+* User-specific Firestore collections
+* Real-time expense updates
 
-### 6. Run the Application
+### ⚠️ Application States
 
-Connect an Android device or start an emulator and run:
-
-```bash
-flutter run
-```
-
----
-
-## Features Implemented
-
-### Authentication
-
-* User registration using email and password.
-* User login using email and password.
-* Persistent Firebase authentication session.
-* Automatic navigation between Login and Home screens based on authentication state.
-* Logout functionality.
-* Authentication error handling.
-
-### Expense Management
-
-* Add new expenses.
-* Edit existing expenses.
-* Delete expenses.
-* Expense title.
-* Expense amount.
-* Expense category.
-* Expense date.
-* Optional expense note.
-
-### Expense Dashboard
-
-* Display current-month expense total.
-* Display all recorded expenses.
-* Display expenses in a user-friendly card/list format.
-* Loading, empty and error states.
-
-### Search
-
-* Search expenses by title.
-* Clear search functionality.
-* Search results update dynamically.
-
-### Filtering
-
-Expenses can be filtered by:
-
-* Category.
-* Start date.
-* End date.
-* Combined category and date filters.
-
-The application also validates the date range and prevents an end date from being earlier than the start date.
-
-### Expense Chart
-
-* Visual representation of expenses by category.
-* Implemented using the `fl_chart` package.
-
-### User Data Security
-
-Each authenticated user has a separate Firestore expense collection.
-
-Firestore security rules ensure that users can only access their own expense data.
+* Loading state
+* Empty state
+* Error state
+* Retry functionality
+* Authentication state handling
 
 ---
 
-## Technologies / Packages Used
+## Technologies Used
 
-### Flutter
-
-Used to build the cross-platform mobile application and user interface.
-
-### Dart
-
-Used as the primary programming language for the Flutter application.
-
-### Firebase Core
-
-Used to initialize and connect the Flutter application with Firebase.
-
-```yaml
-firebase_core
-```
-
-### Firebase Authentication
-
-Used for secure email/password registration, login and logout.
-
-```yaml
-firebase_auth
-```
-
-### Cloud Firestore
-
-Used as the cloud database for storing user expense information.
-
-```yaml
-cloud_firestore
-```
-
-### fl_chart
-
-Used to create the expense visualization/chart.
-
-```yaml
-fl_chart
-```
-
-### Material Design
-
-Flutter Material widgets were used to create the application's user interface, including:
-
-* AppBar
-* Cards
-* Buttons
-* Text fields
-* Dialogs
-* Bottom sheets
-* Date pickers
-* Navigation components
-
----
-
-## AI Tools Used
-
-### ChatGPT
-
-**AI Tool:** ChatGPT by OpenAI
-
-ChatGPT was used as a development assistance tool during the development of this Expense Tracker application.
-
-It helped with:
-
-* Understanding Flutter and Firebase concepts.
-* Generating and explaining Flutter/Dart code.
-* Implementing Firebase Authentication.
-* Implementing Firebase Firestore integration.
-* Troubleshooting Flutter compilation and runtime errors.
-* Debugging Firebase Authentication and Firestore permission issues.
-* Implementing search and filtering functionality.
-* Implementing the expense chart using `fl_chart`.
-* Improving code structure and readability.
-* Explaining errors and suggesting solutions during development.
-
-ChatGPT was used as a development assistance and learning tool. The implemented features were manually integrated and tested during development.
+* **Flutter**
+* **Dart**
+* **Firebase Authentication**
+* **Cloud Firestore**
+* **fl_chart**
 
 ---
 
@@ -221,70 +75,364 @@ ChatGPT was used as a development assistance and learning tool. The implemented 
 
 ```text
 lib/
+│
+├── constants/
+│   └── constants.dart
+│
 ├── models/
 │   └── expense.dart
-│
-├── screens/
-│   ├── login_screen.dart
-│   ├── register_screen.dart
-│   ├── home_screen.dart
-│   └── expense_form_screen.dart
 │
 ├── services/
 │   ├── auth_service.dart
 │   └── expense_service.dart
 │
+├── utils/
+│   ├── constants.dart
+│   └── expense_filter.dart
+│
 ├── widgets/
+│   ├── category_selector.dart
 │   ├── expense_card.dart
 │   ├── expense_summary.dart
-│   └── expense_chart.dart
+│   ├── expense_chart.dart
+│   └── error_state.dart
 │
-├── firebase_options.dart
-└── main.dart
+└── screens/
+    ├── home_screen.dart
+    ├── login_screen.dart
+    ├── register_screen.dart
+    └── expense_form_screen.dart
 ```
 
-## How the Application Works
+> Keep only the folders/files that actually exist in your final project. If `constants.dart` is inside `utils/`, don't also keep a duplicate inside `constants/`.
+
+---
+
+## Firestore Structure
+
+Each authenticated user has their own expense collection.
 
 ```text
-User
-  │
-  ├── Register
-  │      │
-  │      └── Firebase Authentication
-  │
-  ├── Login
-  │      │
-  │      └── Firebase Authentication
-  │
-  └── Home Screen
-         │
-         ├── View Expenses
-         ├── Add Expense
-         ├── Edit Expense
-         ├── Delete Expense
-         ├── Search
-         ├── Filter
-         └── Expense Chart
-                  │
-                  └── Cloud Firestore
+users
+└── {userId}
+    └── expenses
+        ├── {expenseId}
+        │   ├── title
+        │   ├── amount
+        │   ├── category
+        │   ├── date
+        │   └── note
+        │
+        └── {expenseId}
 ```
 
+This structure ensures that users can only access their own expenses.
 
+---
 
-**AI Tools used:ChatGPT**
+## Firestore Security Rules
 
-ChatGPT was used as a development assistance tool during the development of this Expense Tracker application.
+The application uses Firebase Authentication together with Firestore security rules.
+
+```text
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    match /users/{userId}/expenses/{expenseId} {
+      allow read, write: if request.auth != null
+                            && request.auth.uid == userId;
+    }
+  }
+}
+```
+
+These rules prevent an authenticated user from reading or modifying another user's expenses.
+
+---
+
+## Firebase Setup
+
+### 1. Create a Firebase Project
+
+Create a Firebase project and register the Flutter application.
+
+### 2. Enable Authentication
+
+In Firebase Console:
+
+```text
+Authentication
+→ Sign-in method
+→ Email/Password
+→ Enable
+```
+
+### 3. Create Firestore Database
+
+Create a Cloud Firestore database for the project.
+
+### 4. Configure Firebase in Flutter
+
+The project uses FlutterFire configuration.
+
+The generated Firebase configuration file is:
+
+```text
+lib/firebase_options.dart
+```
+
+Do not manually expose sensitive configuration or Firebase credentials in the README.
+
+### 5. Configure Firestore Rules
+
+Replace the default Firestore rules with the user-specific rules shown above and publish them.
+
+---
+
+## Installation
+
+### Prerequisites
+
+Make sure the following are installed:
+
+* Flutter SDK
+* Dart SDK
+* Android Studio
+* Android SDK
+* A physical Android device or Android Emulator
+
+Check Flutter installation:
+
+```bash
+flutter doctor
+```
+
+### Clone the Project
+
+```bash
+git clone <your-github-repository-url>
+```
+
+Navigate into the project:
+
+```bash
+cd Expence_tracker
+```
+
+### Install Dependencies
+
+```bash
+flutter pub get
+```
+
+### Run the Application
+
+```bash
+flutter run
+```
+
+---
+
+## Required Packages
+
+The project uses packages for Firebase services and chart visualization.
+
+Example:
+
+```yaml
+dependencies:
+  flutter:
+    sdk: flutter
+
+  firebase_core:
+  firebase_auth:
+  cloud_firestore:
+  fl_chart:
+```
+
+Run:
+
+```bash
+flutter pub get
+```
+
+after adding or changing dependencies.
+
+---
+
+## Application Flow
+
+```text
+Start Application
+       │
+       ▼
+Firebase Initialization
+       │
+       ▼
+Check Authentication
+       │
+   ┌───┴────┐
+   │        │
+Logged In  Logged Out
+   │        │
+   ▼        ▼
+Home      Login
+   │        │
+   │        ▼
+   │      Register
+   │        │
+   └────────┘
+       │
+       ▼
+Expense Management
+       │
+ ┌─────┼──────────┐
+ ▼     ▼          ▼
+Add   Edit       Delete
+       │
+       ▼
+Cloud Firestore
+```
+
+---
+
+## User Data Security
+
+Expenses are stored under the authenticated user's UID:
+
+```text
+users/{uid}/expenses
+```
+
+The application uses the authenticated user's UID to access the correct expense collection.
+
+Firestore security rules additionally verify:
+
+```text
+request.auth.uid == userId
+```
+
+Therefore, users cannot access another user's expense documents through the application's Firestore requests.
+
+---
+
+## Building the APK
+
+To create a release APK:
+
+```bash
+flutter clean
+flutter pub get
+flutter build apk --release
+```
+
+The generated APK will be located at:
+
+```text
+build/app/outputs/flutter-apk/app-release.apk
+```
+
+For smaller APKs optimized for different Android CPU architectures:
+
+```bash
+flutter build apk --release --split-per-abi
+```
+
+---
+
+## Internet Requirement
+
+The application requires an internet connection for Firebase services such as:
+
+* User authentication
+* Firestore synchronization
+* Adding expenses
+* Updating expenses
+* Deleting expenses
+* Loading expense data
+
+The application does not require a separate Node.js, PHP, or Python backend because Firebase provides the backend services used by the application.
+
+---
+
+## Validation & Error Handling
+
+The application handles common user and network scenarios including:
+
+* Empty expense title
+* Invalid amount
+* Missing category
+* Invalid date range
+* Firebase authentication errors
+* Firestore errors
+* Empty expense list
+* Loading states
+* Retry after errors
+
+---
+
+## AI Tools Used
+
+### ChatGPT — OpenAI
+
+ChatGPT was used as a development assistance and learning tool during the project.
 
 It helped with:
 
-* Understanding Flutter and Firebase concepts.
-* Generating and explaining Flutter/Dart code for UI components and application features.
-* Implementing Firebase Firestore integration for storing and retrieving expenses.
-* Troubleshooting Flutter compilation and runtime errors.
-* Debugging Firebase Authentication and Firestore permission issues.
-* Implementing search and filtering functionality.
-* Implementing the expense chart using the `fl_chart` package.
-* Improving the structure and readability of the application code.
-* Explaining errors and suggesting solutions during development.
+* Flutter and Dart development guidance
+* Firebase Authentication implementation
+* Cloud Firestore integration
+* Debugging and resolving implementation issues
+* Search and filtering functionality
+* Expense chart implementation
+* Code organization and separation of concerns
+* Understanding Firebase security rules
+* README and project documentation
 
-ChatGPT was used as a *development assistance and learning tool*. The application was tested and integrated manually during development to ensure that the implemented features worked as expected.
+The generated suggestions were reviewed, integrated, modified where necessary, and tested as part of the development process.
+
+---
+
+## Testing
+
+The following application workflows were tested:
+
+* User registration
+* User login
+* User logout
+* Authentication state persistence
+* Adding an expense
+* Editing an expense
+* Deleting an expense
+* Searching expenses
+* Category filtering
+* Date-range filtering
+* Expense chart display
+* Monthly expense calculation
+* Firestore data synchronization
+* User-specific expense access
+* Error and empty states
+
+---
+
+## Future Improvements
+
+Possible future improvements include:
+
+* Dark mode
+* Advanced expense analytics
+* Monthly and yearly reports
+* Export expenses to CSV/PDF
+* Budget limits
+* Notifications
+* Recurring expenses
+* Cloud backup enhancements
+* More advanced charts
+
+---
+
+## Author
+
+Developed as a Flutter application project demonstrating mobile application development, Firebase integration, authentication, cloud data management, and user-focused UI functionality.
