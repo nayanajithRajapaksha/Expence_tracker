@@ -19,28 +19,53 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final ExpenseService _expenseService = ExpenseService();
 
-  final TextEditingController _searchController = TextEditingController();
-  final ValueNotifier<String> _searchQuery = ValueNotifier<String>('');
-  final ScrollController _scrollController = ScrollController();
+  final TextEditingController _searchController =
+      TextEditingController();
 
-  late final Stream<List<Expense>> _expenseStream;
+  final ValueNotifier<String> _searchQuery =
+      ValueNotifier<String>('');
+
+  final ScrollController _scrollController =
+      ScrollController();
+
+  Stream<List<Expense>>? _expenseStream;
 
   String? _selectedCategory;
+
   DateTime? _startDate;
   DateTime? _endDate;
 
-  User? get _currentUser => FirebaseAuth.instance.currentUser;
+  final List<String> _categories = [
+    'Food',
+    'Transport',
+    'Shopping',
+    'Bills',
+    'Education',
+    'Health',
+    'Entertainment',
+    'Other',
+  ];
 
-  bool get _hasFilters =>
-      _selectedCategory != null ||
-      _startDate != null ||
-      _endDate != null;
+  User? get _currentUser =>
+      FirebaseAuth.instance.currentUser;
 
   @override
   void initState() {
     super.initState();
 
-    _expenseStream = _expenseService.getExpenses();
+    _setupExpenseStream();
+
+    _searchController.addListener(() {
+      _searchQuery.value = _searchController.text.trim();
+    });
+  }
+
+  void _setupExpenseStream() {
+    if (FirebaseAuth.instance.currentUser != null) {
+      _expenseStream = _expenseService.getExpenses();
+    } else {
+      _expenseStream = null;
+    }
   }
 
   @override
@@ -52,79 +77,9 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
-  List<Expense> _filterExpenses(
-    List<Expense> expenses,
-    String searchQuery,
-  ) {
-    return expenses.where((expense) {
-      // Search by title
-      if (searchQuery.isNotEmpty &&
-          !expense.title.toLowerCase().contains(
-                searchQuery.toLowerCase(),
-              )) {
-        return false;
-      }
-
-      // Category filter
-      if (_selectedCategory != null &&
-          expense.category != _selectedCategory) {
-        return false;
-      }
-
-      // Start date filter
-      if (_startDate != null) {
-        final start = DateTime(
-          _startDate!.year,
-          _startDate!.month,
-          _startDate!.day,
-        );
-
-        if (expense.date.isBefore(start)) {
-          return false;
-        }
-      }
-
-      // End date filter
-      if (_endDate != null) {
-        final end = DateTime(
-          _endDate!.year,
-          _endDate!.month,
-          _endDate!.day,
-          23,
-          59,
-          59,
-        );
-
-        if (expense.date.isAfter(end)) {
-          return false;
-        }
-      }
-
-      return true;
-    }).toList();
-  }
-
-  String _dateFilterText() {
-    if (_startDate != null && _endDate != null) {
-      return '${_startDate!.day}/${_startDate!.month}/${_startDate!.year}'
-          ' - '
-          '${_endDate!.day}/${_endDate!.month}/${_endDate!.year}';
-    }
-
-    if (_startDate != null) {
-      return 'From ${_startDate!.day}/${_startDate!.month}/${_startDate!.year}';
-    }
-
-    return 'Until ${_endDate!.day}/${_endDate!.month}/${_endDate!.year}';
-  }
-
-  void _clearFilters() {
-    setState(() {
-      _selectedCategory = null;
-      _startDate = null;
-      _endDate = null;
-    });
-  }
+  // ------------------------------------------------------------
+  // LOGOUT
+  // ------------------------------------------------------------
 
   Future<void> _logout() async {
     try {
@@ -141,268 +96,408 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> _showFilterSheet() async {
-    String? tempCategory = _selectedCategory;
-    DateTime? tempStartDate = _startDate;
-    DateTime? tempEndDate = _endDate;
+  Future<void> _confirmLogout() async {
+    final shouldLogout = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Logout'),
+          content: const Text(
+            'Are you sure you want to logout?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context, false);
+              },
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                Navigator.pop(context, true);
+              },
+              child: const Text('Logout'),
+            ),
+          ],
+        );
+      },
+    );
 
-    await showModalBottomSheet(
+    if (shouldLogout == true) {
+      await _logout();
+    }
+  }
+
+  // ------------------------------------------------------------
+  // FILTERING
+  // ------------------------------------------------------------
+
+  bool get _hasFilters {
+    return _selectedCategory != null ||
+        _startDate != null ||
+        _endDate != null;
+  }
+
+  List<Expense> _filterExpenses(
+    List<Expense> expenses,
+  ) {
+    final query = _searchQuery.value.toLowerCase();
+
+    return expenses.where((expense) {
+      // Search by title
+      final matchesSearch =
+          query.isEmpty ||
+          expense.title.toLowerCase().contains(query);
+
+      // Category filter
+      final matchesCategory =
+          _selectedCategory == null ||
+          expense.category == _selectedCategory;
+
+      // Date filter
+      final expenseDate = expense.date;
+
+      bool matchesStartDate = true;
+      bool matchesEndDate = true;
+
+      if (_startDate != null) {
+        final start = DateTime(
+          _startDate!.year,
+          _startDate!.month,
+          _startDate!.day,
+        );
+
+        matchesStartDate =
+            !expenseDate.isBefore(start);
+      }
+
+      if (_endDate != null) {
+        final end = DateTime(
+          _endDate!.year,
+          _endDate!.month,
+          _endDate!.day,
+          23,
+          59,
+          59,
+          999,
+        );
+
+        matchesEndDate =
+            !expenseDate.isAfter(end);
+      }
+
+      return matchesSearch &&
+          matchesCategory &&
+          matchesStartDate &&
+          matchesEndDate;
+    }).toList();
+  }
+
+  String _dateFilterText() {
+    if (_startDate == null && _endDate == null) {
+      return 'All dates';
+    }
+
+    String formatDate(DateTime date) {
+      return '${date.day.toString().padLeft(2, '0')}/'
+          '${date.month.toString().padLeft(2, '0')}/'
+          '${date.year}';
+    }
+
+    if (_startDate != null && _endDate != null) {
+      return '${formatDate(_startDate!)} - '
+          '${formatDate(_endDate!)}';
+    }
+
+    if (_startDate != null) {
+      return 'From ${formatDate(_startDate!)}';
+    }
+
+    return 'Until ${formatDate(_endDate!)}';
+  }
+
+  void _clearFilters() {
+    setState(() {
+      _selectedCategory = null;
+      _startDate = null;
+      _endDate = null;
+    });
+  }
+
+  // ------------------------------------------------------------
+  // FILTER BOTTOM SHEET
+  // ------------------------------------------------------------
+
+  Future<void> _showFilterSheet() async {
+    String? temporaryCategory = _selectedCategory;
+    DateTime? temporaryStartDate = _startDate;
+    DateTime? temporaryEndDate = _endDate;
+
+    final result = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
-      showDragHandle: true,
       builder: (context) {
         return StatefulBuilder(
-          builder: (context, setSheetState) {
-            final bool invalidDateRange =
-                tempStartDate != null &&
-                tempEndDate != null &&
-                tempEndDate!.isBefore(tempStartDate!);
+          builder: (context, setModalState) {
+            Future<void> selectStartDate() async {
+              final selected = await showDatePicker(
+                context: context,
+                initialDate:
+                    temporaryStartDate ?? DateTime.now(),
+                firstDate: DateTime(2020),
+                lastDate: DateTime(2100),
+                helpText: 'Select start date',
+              );
 
-            return Padding(
-              padding: EdgeInsets.fromLTRB(
-                20,
-                8,
-                20,
-                MediaQuery.of(context).viewInsets.bottom + 24,
-              ),
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Filter Expenses',
-                      style: TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
+              if (selected != null) {
+                setModalState(() {
+                  temporaryStartDate = selected;
+                });
+              }
+            }
 
-                    const SizedBox(height: 20),
+            Future<void> selectEndDate() async {
+              final selected = await showDatePicker(
+                context: context,
+                initialDate:
+                    temporaryEndDate ?? DateTime.now(),
+                firstDate: DateTime(2020),
+                lastDate: DateTime(2100),
+                helpText: 'Select end date',
+              );
 
-                    DropdownButtonFormField<String>(
-                      initialValue: tempCategory,
-                      decoration: const InputDecoration(
-                        labelText: 'Category',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(
-                          Icons.category_outlined,
-                        ),
-                      ),
-                      items: const [
-                        DropdownMenuItem<String>(
-                          value: null,
-                          child: Text('All Categories'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'Food',
-                          child: Text('Food'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'Transport',
-                          child: Text('Transport'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'Shopping',
-                          child: Text('Shopping'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'Bills',
-                          child: Text('Bills'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'Education',
-                          child: Text('Education'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'Health',
-                          child: Text('Health'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'Entertainment',
-                          child: Text('Entertainment'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'Other',
-                          child: Text('Other'),
-                        ),
-                      ],
-                      onChanged: (value) {
-                        setSheetState(() {
-                          tempCategory = value;
-                        });
-                      },
-                    ),
+              if (selected != null) {
+                setModalState(() {
+                  temporaryEndDate = selected;
+                });
+              }
+            }
 
-                    const SizedBox(height: 16),
+            final invalidDateRange =
+                temporaryStartDate != null &&
+                temporaryEndDate != null &&
+                temporaryEndDate!.isBefore(
+                  temporaryStartDate!,
+                );
 
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: () async {
-                              final picked = await showDatePicker(
-                                context: context,
-                                firstDate: DateTime(2020),
-                                lastDate: DateTime(2100),
-                                initialDate:
-                                    tempStartDate ?? DateTime.now(),
-                              );
-
-                              if (picked != null) {
-                                setSheetState(() {
-                                  tempStartDate = picked;
-                                });
-                              }
-                            },
-                            icon: const Icon(
-                              Icons.calendar_today,
-                            ),
-                            label: Text(
-                              tempStartDate == null
-                                  ? 'Start date'
-                                  : '${tempStartDate!.day}/'
-                                      '${tempStartDate!.month}/'
-                                      '${tempStartDate!.year}',
+            return SafeArea(
+              child: Padding(
+                padding: EdgeInsets.only(
+                  left: 20,
+                  right: 20,
+                  top: 20,
+                  bottom:
+                      MediaQuery.of(context).viewInsets.bottom +
+                      20,
+                ),
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment:
+                        CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Expanded(
+                            child: Text(
+                              'Filter Expenses',
+                              style: TextStyle(
+                                fontSize: 22,
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                           ),
-                        ),
-
-                        const SizedBox(width: 10),
-
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: () async {
-                              final picked = await showDatePicker(
-                                context: context,
-                                firstDate: DateTime(2020),
-                                lastDate: DateTime(2100),
-                                initialDate:
-                                    tempEndDate ?? DateTime.now(),
+                          IconButton(
+                            onPressed: () {
+                              Navigator.pop(
+                                context,
+                                false,
                               );
-
-                              if (picked != null) {
-                                setSheetState(() {
-                                  tempEndDate = picked;
-                                });
-                              }
                             },
-                            icon: const Icon(
-                              Icons.event,
-                            ),
-                            label: Text(
-                              tempEndDate == null
-                                  ? 'End date'
-                                  : '${tempEndDate!.day}/'
-                                      '${tempEndDate!.month}/'
-                                      '${tempEndDate!.year}',
+                            icon: const Icon(Icons.close),
+                          ),
+                        ],
+                      ),
+
+                      const SizedBox(height: 20),
+
+                      // CATEGORY
+                      const Text(
+                        'Category',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 16,
+                        ),
+                      ),
+
+                      const SizedBox(height: 8),
+
+                      DropdownButtonFormField<String>(
+                        value: temporaryCategory,
+                        decoration:
+                            const InputDecoration(
+                          border: OutlineInputBorder(),
+                          hintText: 'All categories',
+                        ),
+                        items: [
+                          const DropdownMenuItem<String>(
+                            value: null,
+                            child: Text(
+                              'All categories',
                             ),
                           ),
-                        ),
-                      ],
-                    ),
+                          ..._categories.map(
+                            (category) {
+                              return DropdownMenuItem<String>(
+                                value: category,
+                                child: Text(category),
+                              );
+                            },
+                          ),
+                        ],
+                        onChanged: (value) {
+                          setModalState(() {
+                            temporaryCategory = value;
+                          });
+                        },
+                      ),
 
-                    const SizedBox(height: 12),
+                      const SizedBox(height: 20),
 
-                    // Invalid date range message
-                    if (invalidDateRange)
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Theme.of(context)
-                              .colorScheme
-                              .errorContainer,
-                          borderRadius: BorderRadius.circular(10),
+                      // START DATE
+                      const Text(
+                        'Start Date',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 16,
                         ),
-                        child: Row(
+                      ),
+
+                      const SizedBox(height: 8),
+
+                      InkWell(
+                        onTap: selectStartDate,
+                        borderRadius:
+                            BorderRadius.circular(12),
+                        child: InputDecorator(
+                          decoration:
+                              const InputDecoration(
+                            border: OutlineInputBorder(),
+                            suffixIcon:
+                                Icon(Icons.calendar_today),
+                          ),
+                          child: Text(
+                            temporaryStartDate == null
+                                ? 'Select start date'
+                                : '${temporaryStartDate!.day.toString().padLeft(2, '0')}/'
+                                  '${temporaryStartDate!.month.toString().padLeft(2, '0')}/'
+                                  '${temporaryStartDate!.year}',
+                          ),
+                        ),
+                      ),
+
+                      const SizedBox(height: 20),
+
+                      // END DATE
+                      const Text(
+                        'End Date',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 16,
+                        ),
+                      ),
+
+                      const SizedBox(height: 8),
+
+                      InkWell(
+                        onTap: selectEndDate,
+                        borderRadius:
+                            BorderRadius.circular(12),
+                        child: InputDecorator(
+                          decoration:
+                              const InputDecoration(
+                            border: OutlineInputBorder(),
+                            suffixIcon:
+                                Icon(Icons.calendar_today),
+                          ),
+                          child: Text(
+                            temporaryEndDate == null
+                                ? 'Select end date'
+                                : '${temporaryEndDate!.day.toString().padLeft(2, '0')}/'
+                                  '${temporaryEndDate!.month.toString().padLeft(2, '0')}/'
+                                  '${temporaryEndDate!.year}',
+                          ),
+                        ),
+                      ),
+
+                      if (invalidDateRange) ...[
+                        const SizedBox(height: 8),
+                        const Row(
                           children: [
                             Icon(
                               Icons.error_outline,
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .onErrorContainer,
+                              color: Colors.red,
+                              size: 20,
                             ),
-
-                            const SizedBox(width: 10),
-
+                            SizedBox(width: 6),
                             Expanded(
                               child: Text(
-                                'Invalid date range. '
                                 'End date cannot be before start date.',
                                 style: TextStyle(
-                                  color: Theme.of(context)
-                                      .colorScheme
-                                      .onErrorContainer,
-                                  fontWeight: FontWeight.w600,
+                                  color: Colors.red,
                                 ),
                               ),
                             ),
                           ],
                         ),
-                      ),
+                      ],
 
-                    const SizedBox(height: 24),
+                      const SizedBox(height: 25),
 
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton(
-                            onPressed: () {
-                              Navigator.pop(context);
-
-                              _clearFilters();
-                            },
-                            child: const Text('Clear'),
-                          ),
-                        ),
-
-                        const SizedBox(width: 12),
-
-                        Expanded(
-                          flex: 2,
-                          child: FilledButton(
-                            onPressed: () {
-                              // Validate date range
-                              if (tempStartDate != null &&
-                                  tempEndDate != null &&
-                                  tempEndDate!
-                                      .isBefore(tempStartDate!)) {
-                                ScaffoldMessenger.of(context)
-                                    .hideCurrentSnackBar();
-
-                                ScaffoldMessenger.of(context)
-                                    .showSnackBar(
-                                  const SnackBar(
-                                    content: Text(
-                                      'Invalid date range: '
-                                      'End date cannot be before '
-                                      'start date.',
-                                    ),
-                                    behavior:
-                                        SnackBarBehavior.floating,
-                                  ),
-                                );
-
-                                return;
-                              }
-
-                              Navigator.pop(context);
-
-                              setState(() {
-                                _selectedCategory = tempCategory;
-                                _startDate = tempStartDate;
-                                _endDate = tempEndDate;
-                              });
-                            },
-                            child: const Text(
-                              'Apply Filters',
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () {
+                                setModalState(() {
+                                  temporaryCategory = null;
+                                  temporaryStartDate = null;
+                                  temporaryEndDate = null;
+                                });
+                              },
+                              child: const Text('Clear'),
                             ),
                           ),
-                        ),
-                      ],
-                    ),
-                  ],
+
+                          const SizedBox(width: 12),
+
+                          Expanded(
+                            child: FilledButton(
+                              onPressed: invalidDateRange
+                                  ? () {
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
+                                        const SnackBar(
+                                          content: Text(
+                                            'Please select a valid date range.',
+                                          ),
+                                        ),
+                                      );
+                                    }
+                                  : () {
+                                      Navigator.pop(
+                                        context,
+                                        true,
+                                      );
+                                    },
+                              child: const Text('Apply'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
               ),
             );
@@ -410,70 +505,112 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       },
     );
+
+    if (result == true) {
+      setState(() {
+        _selectedCategory = temporaryCategory;
+        _startDate = temporaryStartDate;
+        _endDate = temporaryEndDate;
+      });
+    }
   }
+
+  // ------------------------------------------------------------
+  // ADD EXPENSE
+  // ------------------------------------------------------------
+
+  Future<void> _addExpense() async {
+    if (_currentUser == null) return;
+
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const ExpenseFormScreen(),
+      ),
+    );
+  }
+
+  // ------------------------------------------------------------
+  // BUILD
+  // ------------------------------------------------------------
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final user = _currentUser;
 
-    final String userEmail =
-        _currentUser?.email ?? 'User';
+    // IMPORTANT:
+    // When logout happens, FirebaseAuth becomes null before
+    // the old Firestore listener is completely disposed.
+    //
+    // This prevents the temporary permission-denied error
+    // from being displayed during logout.
+    if (user == null) {
+      return const Scaffold(
+        body: SizedBox.shrink(),
+      );
+    }
 
     return Scaffold(
-      backgroundColor: theme.colorScheme.surface,
-
       appBar: AppBar(
-        elevation: 0,
-        backgroundColor: theme.colorScheme.surface,
-
-        title: Column(
-          crossAxisAlignment:
-              CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Expense Tracker',
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-
-            Text(
-              userEmail,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.normal,
-                color: theme.colorScheme.outline,
-              ),
-            ),
-          ],
+        title: const Text(
+          'Expense Tracker',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+          ),
         ),
-
         actions: [
-          // Refresh
           IconButton(
             tooltip: 'Refresh',
             onPressed: () {
-              setState(() {});
+              setState(() {
+                _setupExpenseStream();
+              });
             },
             icon: const Icon(Icons.refresh),
           ),
 
-          // Logout
           IconButton(
             tooltip: 'Logout',
-            onPressed: _logout,
+            onPressed: _confirmLogout,
             icon: const Icon(Icons.logout),
           ),
-
-          const SizedBox(width: 4),
         ],
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(35),
+          child: Padding(
+            padding: const EdgeInsets.only(
+              left: 16,
+              right: 16,
+              bottom: 8,
+            ),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                user.email ?? 'Logged in user',
+                style: Theme.of(context)
+                    .textTheme
+                    .bodySmall,
+              ),
+            ),
+          ),
+        ),
       ),
 
       body: StreamBuilder<List<Expense>>(
         stream: _expenseStream,
-
         builder: (context, snapshot) {
-          // Loading
+          // ----------------------------------------------------
+          // LOGOUT TRANSITION
+          // ----------------------------------------------------
+
+          if (FirebaseAuth.instance.currentUser == null) {
+            return const SizedBox.shrink();
+          }
+
+          // ----------------------------------------------------
+          // LOADING
+          // ----------------------------------------------------
+
           if (snapshot.connectionState ==
               ConnectionState.waiting) {
             return const Center(
@@ -481,339 +618,252 @@ class _HomeScreenState extends State<HomeScreen> {
             );
           }
 
-          // Error
+          // ----------------------------------------------------
+          // ERROR
+          // ----------------------------------------------------
+
           if (snapshot.hasError) {
-            return Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(
-                      Icons.error_outline,
-                      size: 60,
-                    ),
-
-                    const SizedBox(height: 16),
-
-                    const Text(
-                      'Something went wrong',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-
-                    const SizedBox(height: 8),
-
-                    Text(
-                      snapshot.error.toString(),
-                      textAlign: TextAlign.center,
-                    ),
-
-                    const SizedBox(height: 20),
-
-                    FilledButton.icon(
-                      onPressed: () {
-                        setState(() {});
-                      },
-                      icon: const Icon(Icons.refresh),
-                      label: const Text('Retry'),
-                    ),
-                  ],
-                ),
-              ),
+            return _buildErrorState(
+              snapshot.error.toString(),
             );
           }
 
           final allExpenses =
-              snapshot.data ?? [];
+              snapshot.data ?? <Expense>[];
+
+          final filteredExpenses =
+              _filterExpenses(allExpenses);
 
           return ValueListenableBuilder<String>(
             valueListenable: _searchQuery,
-
-            builder: (
-              context,
-              searchQuery,
-              child,
-            ) {
-              final filteredExpenses =
-                  _filterExpenses(
-                allExpenses,
-                searchQuery,
-              );
+            builder: (context, searchQuery, child) {
+              final currentExpenses =
+                  _filterExpenses(allExpenses);
 
               return RefreshIndicator(
                 onRefresh: () async {
-                  setState(() {});
+                  setState(() {
+                    _setupExpenseStream();
+                  });
 
                   await Future.delayed(
                     const Duration(
-                      milliseconds: 500,
+                      milliseconds: 300,
                     ),
                   );
                 },
-
-                child: ListView(
+                child: CustomScrollView(
                   controller: _scrollController,
-
                   physics:
                       const AlwaysScrollableScrollPhysics(),
+                  slivers: [
+                    // ------------------------------------------------
+                    // HEADER / SUMMARY
+                    // ------------------------------------------------
 
-                  padding: const EdgeInsets.fromLTRB(
-                    16,
-                    8,
-                    16,
-                    100,
-                  ),
-
-                  children: [
-                    // Summary
-                    ExpenseSummary(
-                      expenses: allExpenses,
-                    ),
-
-                    const SizedBox(height: 16),
-
-                    // Chart
-                    ExpenseChart(
-                      expenses: allExpenses,
-                    ),
-
-                    const SizedBox(height: 24),
-
-                    // Search
-                    TextField(
-                      controller: _searchController,
-
-                      onChanged: (value) {
-                        _searchQuery.value =
-                            value.trim();
-                      },
-
-                      decoration: InputDecoration(
-                        hintText:
-                            'Search expenses...',
-
-                        prefixIcon:
-                            const Icon(
-                          Icons.search,
-                        ),
-
-                        suffixIcon:
-                            searchQuery.isNotEmpty
-                                ? IconButton(
-                                    onPressed: () {
-                                      _searchController
-                                          .clear();
-
-                                      _searchQuery.value =
-                                          '';
-                                    },
-                                    icon:
-                                        const Icon(
-                                      Icons.clear,
-                                    ),
-                                  )
-                                : null,
-
-                        border:
-                            OutlineInputBorder(
-                          borderRadius:
-                              BorderRadius.circular(
-                            16,
-                          ),
-                        ),
-
-                        filled: true,
-                      ),
-                    ),
-
-                    const SizedBox(height: 20),
-
-                    // Expense history header
-                    Row(
-                      mainAxisAlignment:
-                          MainAxisAlignment.spaceBetween,
-
-                      children: [
-                        const Text(
-                          'Expense History',
-                          style: TextStyle(
-                            fontSize: 20,
-                            fontWeight:
-                                FontWeight.bold,
-                          ),
-                        ),
-
-                        IconButton.filledTonal(
-                          tooltip:
-                              'Filter expenses',
-
-                          onPressed:
-                              _showFilterSheet,
-
-                          icon: Badge(
-                            isLabelVisible:
-                                _hasFilters,
-
-                            label:
-                                const Text(''),
-
-                            child: const Icon(
-                              Icons.filter_list,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-
-                    // Active filters
-                    if (_hasFilters) ...[
-                      const SizedBox(height: 8),
-
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          if (_selectedCategory !=
-                              null)
-                            Chip(
-                              label: Text(
-                                _selectedCategory!,
-                              ),
-                              onDeleted: () {
-                                setState(() {
-                                  _selectedCategory =
-                                      null;
-                                });
-                              },
-                            ),
-
-                          if (_startDate != null ||
-                              _endDate != null)
-                            Chip(
-                              label: Text(
-                                _dateFilterText(),
-                              ),
-                              onDeleted: () {
-                                setState(() {
-                                  _startDate = null;
-                                  _endDate = null;
-                                });
-                              },
-                            ),
-
-                          ActionChip(
-                            label:
-                                const Text(
-                              'Clear all',
-                            ),
-                            onPressed:
-                                _clearFilters,
-                          ),
-                        ],
-                      ),
-                    ],
-
-                    // Search results count
-                    if (searchQuery.isNotEmpty) ...[
-                      const SizedBox(height: 8),
-
-                      Text(
-                        '${filteredExpenses.length} '
-                        'result'
-                        '${filteredExpenses.length == 1 ? '' : 's'} '
-                        'found',
-
-                        style: TextStyle(
-                          color:
-                              theme.colorScheme
-                                  .outline,
-                        ),
-                      ),
-                    ],
-
-                    const SizedBox(height: 12),
-
-                    // Empty state
-                    if (filteredExpenses.isEmpty)
-                      Padding(
+                    SliverToBoxAdapter(
+                      child: Padding(
                         padding:
-                            const EdgeInsets.only(
-                          top: 80,
+                            const EdgeInsets.fromLTRB(
+                          16,
+                          16,
+                          16,
+                          0,
                         ),
-
                         child: Column(
+                          crossAxisAlignment:
+                              CrossAxisAlignment.start,
                           children: [
-                            Icon(
-                              searchQuery.isNotEmpty
-                                  ? Icons.search_off
-                                  : _hasFilters
-                                      ? Icons
-                                          .filter_alt_off_outlined
-                                      : Icons
-                                          .receipt_long_outlined,
-
-                              size: 64,
-
-                              color:
-                                  theme.colorScheme
-                                      .primary,
+                            ExpenseSummary(
+                              expenses: allExpenses,
                             ),
 
-                            const SizedBox(
-                              height: 16,
-                            ),
+                            const SizedBox(height: 16),
 
-                            Text(
-                              searchQuery.isNotEmpty
-                                  ? 'No expenses found'
-                                  : _hasFilters
-                                      ? 'No matching expenses'
-                                      : 'No expenses yet',
-
-                              style:
-                                  const TextStyle(
-                                fontSize: 20,
-                                fontWeight:
-                                    FontWeight.bold,
+                            // SEARCH
+                            TextField(
+                              controller:
+                                  _searchController,
+                              textInputAction:
+                                  TextInputAction.search,
+                              decoration:
+                                  InputDecoration(
+                                hintText:
+                                    'Search expenses by title...',
+                                prefixIcon:
+                                    const Icon(
+                                  Icons.search,
+                                ),
+                                suffixIcon:
+                                    searchQuery.isNotEmpty
+                                        ? IconButton(
+                                            onPressed: () {
+                                              _searchController
+                                                  .clear();
+                                            },
+                                            icon:
+                                                const Icon(
+                                              Icons.clear,
+                                            ),
+                                          )
+                                        : null,
+                                border:
+                                    OutlineInputBorder(
+                                  borderRadius:
+                                      BorderRadius.circular(
+                                    14,
+                                  ),
+                                ),
                               ),
                             ),
 
-                            const SizedBox(
-                              height: 8,
+                            const SizedBox(height: 12),
+
+                            // FILTER ROW
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: OutlinedButton.icon(
+                                    onPressed:
+                                        _showFilterSheet,
+                                    icon: const Icon(
+                                      Icons.filter_list,
+                                    ),
+                                    label: Text(
+                                      _hasFilters
+                                          ? 'Filters applied'
+                                          : 'Filter',
+                                    ),
+                                  ),
+                                ),
+
+                                if (_hasFilters) ...[
+                                  const SizedBox(width: 8),
+                                  IconButton(
+                                    tooltip:
+                                        'Clear filters',
+                                    onPressed:
+                                        _clearFilters,
+                                    icon: const Icon(
+                                      Icons.clear_all,
+                                    ),
+                                  ),
+                                ],
+                              ],
                             ),
 
+                            // ACTIVE FILTERS
+                            if (_hasFilters) ...[
+                              const SizedBox(height: 8),
+
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: [
+                                  if (_selectedCategory !=
+                                      null)
+                                    Chip(
+                                      avatar: const Icon(
+                                        Icons.category,
+                                        size: 18,
+                                      ),
+                                      label: Text(
+                                        _selectedCategory!,
+                                      ),
+                                    ),
+
+                                  if (_startDate != null ||
+                                      _endDate != null)
+                                    Chip(
+                                      avatar: const Icon(
+                                        Icons.date_range,
+                                        size: 18,
+                                      ),
+                                      label: Text(
+                                        _dateFilterText(),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ],
+
+                            const SizedBox(height: 20),
+
+                            // CHART
+                            if (allExpenses.isNotEmpty) ...[
+                              ExpenseChart(
+                                expenses: allExpenses,
+                              ),
+                              const SizedBox(height: 20),
+                            ],
+
+                            // RESULT COUNT
                             Text(
-                              searchQuery.isNotEmpty
-                                  ? 'Try a different search term.'
-                                  : _hasFilters
-                                      ? 'Try changing your filters.'
-                                      : 'Start tracking your spending today.',
-
-                              textAlign:
-                                  TextAlign.center,
+                              searchQuery.isNotEmpty ||
+                                      _hasFilters
+                                  ? '${filteredExpenses.length} expense(s) found'
+                                  : '${allExpenses.length} expense(s)',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleMedium
+                                  ?.copyWith(
+                                fontWeight:
+                                    FontWeight.w600,
+                              ),
                             ),
+
+                            const SizedBox(height: 8),
                           ],
+                        ),
+                      ),
+                    ),
+
+                    // ------------------------------------------------
+                    // EMPTY STATE
+                    // ------------------------------------------------
+
+                    if (currentExpenses.isEmpty)
+                      SliverFillRemaining(
+                        hasScrollBody: false,
+                        child: _buildEmptyState(
+                          hasAnyExpenses:
+                              allExpenses.isNotEmpty,
                         ),
                       )
 
-                    // Expense list
+                    // ------------------------------------------------
+                    // EXPENSE LIST
+                    // ------------------------------------------------
                     else
-                      ...filteredExpenses.map(
-                        (expense) {
-                          return Padding(
-                            padding:
-                                const EdgeInsets.only(
-                              bottom: 10,
-                            ),
+                      SliverPadding(
+                        padding:
+                            const EdgeInsets.fromLTRB(
+                          16,
+                          8,
+                          16,
+                          100,
+                        ),
+                        sliver: SliverList(
+                          delegate:
+                              SliverChildBuilderDelegate(
+                            (context, index) {
+                              final expense =
+                                  currentExpenses[index];
 
-                            child: ExpenseCard(
-                              expense: expense,
-                            ),
-                          );
-                        },
+                              return Padding(
+                                padding:
+                                    const EdgeInsets.only(
+                                  bottom: 10,
+                                ),
+                                child: ExpenseCard(
+                                  expense: expense,
+                                ),
+                              );
+                            },
+                            childCount:
+                                currentExpenses.length,
+                          ),
+                        ),
                       ),
                   ],
                 ),
@@ -823,23 +873,147 @@ class _HomeScreenState extends State<HomeScreen> {
         },
       ),
 
-      // Add Expense
       floatingActionButton:
           FloatingActionButton.extended(
-        onPressed: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) =>
-                  const ExpenseFormScreen(),
-            ),
-          );
-        },
-
+        onPressed: _addExpense,
         icon: const Icon(Icons.add),
+        label: const Text('Add Expense'),
+      ),
+    );
+  }
+  
+  // Error state
+  Widget _buildErrorState(String error) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisAlignment:
+              MainAxisAlignment.center,
+          children: [
+            const Icon(
+              Icons.error_outline,
+              size: 60,
+              color: Colors.red,
+            ),
 
-        label: const Text(
-          'Add Expense',
+            const SizedBox(height: 16),
+
+            const Text(
+              'Something went wrong',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+
+            const SizedBox(height: 8),
+
+            Text(
+              error,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Colors.grey,
+              ),
+            ),
+
+            const SizedBox(height: 20),
+
+            FilledButton.icon(
+              onPressed: () {
+                setState(() {
+                  _setupExpenseStream();
+                });
+              },
+              icon: const Icon(Icons.refresh),
+              label: const Text('Retry'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ------------------------------------------------------------
+  // EMPTY STATE
+  // ------------------------------------------------------------
+
+  Widget _buildEmptyState({
+    required bool hasAnyExpenses,
+  }) {
+    final hasSearch =
+        _searchQuery.value.isNotEmpty;
+
+    final hasFilter = _hasFilters;
+
+    String title;
+    String subtitle;
+    IconData icon;
+
+    if (hasSearch || hasFilter) {
+      title = 'No matching expenses';
+      subtitle =
+          'Try changing your search or filters.';
+      icon = Icons.search_off;
+    } else if (!hasAnyExpenses) {
+      title = 'No expenses yet';
+      subtitle =
+          'Start tracking your spending by adding your first expense.';
+      icon = Icons.receipt_long;
+    } else {
+      title = 'No expenses';
+      subtitle =
+          'There are no expenses to display.';
+      icon = Icons.receipt_long;
+    }
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisAlignment:
+              MainAxisAlignment.center,
+          children: [
+            Icon(
+              icon,
+              size: 72,
+              color: Colors.grey,
+            ),
+
+            const SizedBox(height: 20),
+
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 21,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+
+            const SizedBox(height: 8),
+
+            Text(
+              subtitle,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Colors.grey,
+                fontSize: 15,
+              ),
+            ),
+
+            if (!hasSearch && !hasFilter) ...[
+              const SizedBox(height: 20),
+
+              FilledButton.icon(
+                onPressed: _addExpense,
+                icon: const Icon(Icons.add),
+                label: const Text(
+                  'Add Expense',
+                ),
+              ),
+            ],
+          ],
         ),
       ),
     );

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import 'firebase_options.dart';
 import 'screens/home_screen.dart';
+import 'screens/login_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -11,11 +12,6 @@ Future<void> main() async {
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
-
-  // Sign in anonymously so Firestore requests are authenticated.
-  if (FirebaseAuth.instance.currentUser == null) {
-    await FirebaseAuth.instance.signInAnonymously();
-  }
 
   runApp(const ExpenseTrackerApp());
 }
@@ -29,12 +25,41 @@ class ExpenseTrackerApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       title: 'Expense Tracker',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.indigo,
-        ),
         useMaterial3: true,
+        colorSchemeSeed: Colors.blue,
       ),
-      home: const HomeScreen(),
+      home: const AuthGate(),
+    );
+  }
+}
+
+class AuthGate extends StatelessWidget {
+  const AuthGate({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<User?>(
+      stream: FirebaseAuth.instance.authStateChanges(),
+      builder: (context, snapshot) {
+        // Firebase is checking the current login state.
+        if (snapshot.connectionState ==
+            ConnectionState.waiting) {
+          return const Scaffold(
+            body: Center(
+              child: CircularProgressIndicator(),
+            ),
+          );
+        }
+
+        // User is logged in.
+        if (snapshot.hasData &&
+            snapshot.data != null) {
+          return const HomeScreen();
+        }
+
+        // User is not logged in.
+        return const LoginScreen();
+      },
     );
   }
 }
