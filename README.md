@@ -212,7 +212,7 @@ flutter doctor
 ### Clone the Project
 
 ```bash
-git clone <your-github-repository-url>
+git clone https://github.com/nayanajithRajapaksha/Expence_tracker.git
 ```
 
 Navigate into the project:
