@@ -1,12 +1,26 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 import '../models/expense.dart';
 
 class ExpenseService {
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseFirestore _firestore =
+      FirebaseFirestore.instance;
 
-  CollectionReference<Map<String, dynamic>> get _expenses =>
-      _firestore.collection('expenses');
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+
+  CollectionReference<Map<String, dynamic>> get _expenses {
+    final user = _auth.currentUser;
+
+    if (user == null) {
+      throw Exception('User is not authenticated');
+    }
+
+    return _firestore
+        .collection('users')
+        .doc(user.uid)
+        .collection('expenses');
+  }
 
   Future<void> addExpense(Expense expense) async {
     await _expenses.add(expense.toFirestore());
