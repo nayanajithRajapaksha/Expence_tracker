@@ -1,286 +1,691 @@
+import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 
 import '../models/expense.dart';
-import '../services/expense_service.dart';
-import '../screens/expense_form_screen.dart';
 
-class ExpenseCard extends StatelessWidget {
-  final Expense expense;
+class ExpenseChart extends StatefulWidget {
+  final List<Expense> expenses;
 
-  const ExpenseCard({
+  const ExpenseChart({
     super.key,
-    required this.expense,
+    required this.expenses,
   });
 
-  IconData _getCategoryIcon(String category) {
-    switch (category) {
-      case 'Food':
-        return Icons.restaurant_rounded;
-      case 'Transport':
-        return Icons.directions_car_rounded;
-      case 'Shopping':
-        return Icons.shopping_bag_rounded;
-      case 'Bills':
-        return Icons.receipt_long_rounded;
-      case 'Education':
-        return Icons.school_rounded;
-      case 'Health':
-        return Icons.local_hospital_rounded;
-      case 'Entertainment':
-        return Icons.movie_rounded;
-      default:
-        return Icons.category_rounded;
+  @override
+  State<ExpenseChart> createState() => _ExpenseChartState();
+}
+
+class _ExpenseChartState extends State<ExpenseChart> {
+  bool _showPieChart = true;
+  String? _selectedMonth;
+
+  final Map<String, Color> _categoryColors = {
+    'Food': Colors.orange,
+    'Transport': Colors.blue,
+    'Shopping': Colors.purple,
+    'Bills': Colors.red,
+    'Entertainment': Colors.pink,
+    'Health': Colors.green,
+    'Education': Colors.teal,
+    'Other': Colors.grey,
+  };
+
+  @override
+  void didUpdateWidget(
+    covariant ExpenseChart oldWidget,
+  ) {
+    super.didUpdateWidget(oldWidget);
+
+    final months = _getAvailableMonths();
+
+    if (_selectedMonth != null &&
+        !months.contains(_selectedMonth)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+
+        setState(() {
+          _selectedMonth =
+              months.isNotEmpty ? months.last : null;
+        });
+      });
     }
   }
 
-  Color _getCategoryColor(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
+  List<String> _getAvailableMonths() {
+    final months = <String>{};
 
-    switch (expense.category) {
-      case 'Food':
-        return Colors.orange;
-      case 'Transport':
-        return Colors.blue;
-      case 'Shopping':
-        return Colors.pink;
-      case 'Bills':
-        return Colors.red;
-      case 'Education':
-        return Colors.indigo;
-      case 'Health':
-        return Colors.green;
-      case 'Entertainment':
-        return Colors.purple;
-      default:
-        return colorScheme.primary;
+    for (final expense in widget.expenses) {
+      months.add(_monthKey(expense.date));
     }
+
+    final result = months.toList()..sort();
+
+    return result;
   }
 
-  Future<void> _deleteExpense(BuildContext context) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Delete Expense?'),
-          content: Text(
-            'Are you sure you want to delete "${expense.title}"?',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('Delete'),
-            ),
-          ],
-        );
-      },
-    );
-
-    if (confirmed != true || !context.mounted) {
-      return;
-    }
-
-    try {
-      await ExpenseService().deleteExpense(expense.id);
-
-      if (!context.mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Expense deleted'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    } catch (e) {
-      if (!context.mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Failed to delete expense: $e'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    }
+  String _monthKey(DateTime date) {
+    return '${date.year}-'
+        '${date.month.toString().padLeft(2, '0')}';
   }
 
-  void _editExpense(BuildContext context) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => ExpenseFormScreen(
-          expense: expense,
-        ),
-      ),
-    );
+  String _formatMonth(String key) {
+    final parts = key.split('-');
+
+    final year = int.parse(parts[0]);
+    final month = int.parse(parts[1]);
+
+    const monthNames = [
+      'January',
+      'February',
+      'March',
+      'April',
+      'May',
+      'June',
+      'July',
+      'August',
+      'September',
+      'October',
+      'November',
+      'December',
+    ];
+
+    return '${monthNames[month - 1]} $year';
+  }
+
+  Map<String, double> _getMonthlySpending() {
+    final monthlySpending = <String, double>{};
+
+    for (final expense in widget.expenses) {
+      final month = _monthKey(expense.date);
+
+      monthlySpending[month] =
+          (monthlySpending[month] ?? 0) +
+              expense.amount;
+    }
+
+    final entries =
+        monthlySpending.entries.toList()
+          ..sort(
+            (a, b) => a.key.compareTo(b.key),
+          );
+
+    return Map.fromEntries(entries);
+  }
+
+  Map<String, double> _getSelectedMonthCategories(
+    String selectedMonth,
+  ) {
+    final categorySpending = <String, double>{};
+
+    for (final expense in widget.expenses) {
+      if (_monthKey(expense.date) ==
+          selectedMonth) {
+        categorySpending[expense.category] =
+            (categorySpending[expense.category] ?? 0) +
+                expense.amount;
+      }
+    }
+
+    return categorySpending;
+  }
+
+  Color _getCategoryColor(String category) {
+    return _categoryColors[category] ??
+        Colors.grey;
+  }
+
+  String _formatAmount(double amount) {
+    if (amount >= 1000000) {
+      return '${(amount / 1000000).toStringAsFixed(1)}M';
+    }
+
+    if (amount >= 1000) {
+      return '${(amount / 1000).toStringAsFixed(1)}K';
+    }
+
+    return amount.toStringAsFixed(0);
   }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final categoryColor = _getCategoryColor(context);
+    final months = _getAvailableMonths();
 
-    final formattedDate =
-        DateFormat('dd MMM yyyy').format(expense.date);
-
-    return Card(
-      margin: EdgeInsets.zero,
-      elevation: 0,
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: () => _editExpense(context),
+    if (widget.expenses.isEmpty ||
+        months.isEmpty) {
+      return Card(
         child: Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: 16,
-            vertical: 14,
-          ),
-          child: Row(
+          padding: const EdgeInsets.all(24),
+          child: Column(
             children: [
-
-              Container(
-                width: 50,
-                height: 50,
-                decoration: BoxDecoration(
-                  color: categoryColor.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Icon(
-                  _getCategoryIcon(expense.category),
-                  color: categoryColor,
-                  size: 24,
-                ),
+              const Icon(
+                Icons.analytics_outlined,
+                size: 48,
+                color: Colors.grey,
               ),
-
-              const SizedBox(width: 14),
-
-
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      expense.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-
-                    const SizedBox(height: 5),
-
-                    Row(
-                      children: [
-                        Text(
-                          expense.category,
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: categoryColor,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-
-                        Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 6,
-                          ),
-                          child: Text(
-                            '•',
-                            style: TextStyle(
-                              color: theme.colorScheme.outline,
-                            ),
-                          ),
-                        ),
-
-                        Text(
-                          formattedDate,
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: theme.colorScheme.outline,
-                          ),
-                        ),
-                      ],
-                    ),
-
-                    if (expense.note != null &&
-                        expense.note!.isNotEmpty) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        expense.note!,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: theme.colorScheme.outline,
-                        ),
-                      ),
-                    ],
-                  ],
+              const SizedBox(height: 12),
+              Text(
+                'No chart data for the selected filters.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.grey.shade600,
                 ),
-              ),
-
-              const SizedBox(width: 8),
-
-
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    'Rs. ${expense.amount.toStringAsFixed(2)}',
-                    style: const TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-
-                  const SizedBox(height: 2),
-
-                  PopupMenuButton<String>(
-                    padding: EdgeInsets.zero,
-                    icon: const Icon(
-                      Icons.more_vert,
-                      size: 20,
-                    ),
-                    onSelected: (value) {
-                      if (value == 'edit') {
-                        _editExpense(context);
-                      } else if (value == 'delete') {
-                        _deleteExpense(context);
-                      }
-                    },
-                    itemBuilder: (context) => const [
-                      PopupMenuItem(
-                        value: 'edit',
-                        child: Row(
-                          children: [
-                            Icon(Icons.edit_outlined),
-                            SizedBox(width: 10),
-                            Text('Edit'),
-                          ],
-                        ),
-                      ),
-                      PopupMenuItem(
-                        value: 'delete',
-                        child: Row(
-                          children: [
-                            Icon(Icons.delete_outline),
-                            SizedBox(width: 10),
-                            Text('Delete'),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
               ),
             ],
           ),
         ),
+      );
+    }
+
+    final selectedMonth =
+        (_selectedMonth != null &&
+                months.contains(_selectedMonth))
+            ? _selectedMonth!
+            : months.last;
+
+    return Card(
+      elevation: 2,
+      child: Padding(
+        padding:
+            const EdgeInsets.fromLTRB(
+          16,
+          20,
+          16,
+          20,
+        ),
+        child: Column(
+          crossAxisAlignment:
+              CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Expense Analytics',
+              style: TextStyle(
+                fontSize: 19,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+
+            const SizedBox(height: 4),
+
+            Text(
+              'Category and monthly spending analysis',
+              style: TextStyle(
+                fontSize: 13,
+                color: Colors.grey.shade600,
+              ),
+            ),
+
+            const SizedBox(height: 18),
+
+            // PIE / GRAPH SWITCH
+            SizedBox(
+              width: double.infinity,
+              child: SegmentedButton<bool>(
+                segments: const [
+                  ButtonSegment<bool>(
+                    value: true,
+                    icon: Icon(
+                      Icons.pie_chart_outline,
+                    ),
+                    label: Text('Pie Chart'),
+                  ),
+                  ButtonSegment<bool>(
+                    value: false,
+                    icon: Icon(
+                      Icons.bar_chart,
+                    ),
+                    label: Text('Graph'),
+                  ),
+                ],
+                selected: {_showPieChart},
+                onSelectionChanged:
+                    (selection) {
+                  setState(() {
+                    _showPieChart =
+                        selection.first;
+                  });
+                },
+              ),
+            ),
+
+            const SizedBox(height: 18),
+
+            if (_showPieChart) ...[
+              const Text(
+                'Select Month',
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+
+              const SizedBox(height: 8),
+
+              DropdownButtonFormField<String>(
+                initialValue: selectedMonth,
+                decoration:
+                    const InputDecoration(
+                  prefixIcon: Icon(
+                    Icons.calendar_month_outlined,
+                  ),
+                  border: OutlineInputBorder(),
+                ),
+                items: months.map(
+                  (month) {
+                    return DropdownMenuItem<
+                        String>(
+                      value: month,
+                      child: Text(
+                        _formatMonth(month),
+                      ),
+                    );
+                  },
+                ).toList(),
+                onChanged: (value) {
+                  if (value == null) return;
+
+                  setState(() {
+                    _selectedMonth = value;
+                  });
+                },
+              ),
+
+              const SizedBox(height: 24),
+
+              _buildPieChart(selectedMonth),
+            ]
+
+            else ...[
+              const SizedBox(height: 10),
+              _buildMonthlyGraph(),
+            ],
+          ],
+        ),
       ),
+    );
+  }
+
+  Widget _buildPieChart(
+    String selectedMonth,
+  ) {
+    final categorySpending =
+        _getSelectedMonthCategories(
+      selectedMonth,
+    );
+
+    if (categorySpending.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.all(24),
+        child: Center(
+          child: Text(
+            'No expenses for this month.',
+          ),
+        ),
+      );
+    }
+
+    final entries =
+        categorySpending.entries.toList();
+
+    final total = entries.fold<double>(
+      0,
+      (sum, entry) => sum + entry.value,
+    );
+
+    return Column(
+      children: [
+        SizedBox(
+          height: 270,
+          child: PieChart(
+            PieChartData(
+              sectionsSpace: 3,
+              centerSpaceRadius: 50,
+
+              sections:
+                  entries.map((entry) {
+                final percentage =
+                    (entry.value / total) *
+                        100;
+
+                return PieChartSectionData(
+                  value: entry.value,
+                  color:
+                      _getCategoryColor(
+                    entry.key,
+                  ),
+                  title:
+                      '${percentage.toStringAsFixed(1)}%',
+                  radius: 90,
+                  titleStyle:
+                      const TextStyle(
+                    fontSize: 12,
+                    fontWeight:
+                        FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+        ),
+
+        const SizedBox(height: 18),
+
+        ...entries.map(
+          (entry) {
+            final percentage =
+                (entry.value / total) *
+                    100;
+
+            return Padding(
+              padding:
+                  const EdgeInsets.symmetric(
+                vertical: 6,
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 14,
+                    height: 14,
+                    decoration:
+                        BoxDecoration(
+                      shape:
+                          BoxShape.circle,
+                      color:
+                          _getCategoryColor(
+                        entry.key,
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(width: 10),
+
+                  Expanded(
+                    child: Text(
+                      entry.key,
+                      style:
+                          const TextStyle(
+                        fontWeight:
+                            FontWeight.w500,
+                      ),
+                    ),
+                  ),
+
+                  Text(
+                    'Rs. ${entry.value.toStringAsFixed(2)}',
+                    style:
+                        const TextStyle(
+                      fontWeight:
+                          FontWeight.w600,
+                    ),
+                  ),
+
+                  const SizedBox(width: 8),
+
+                  SizedBox(
+                    width: 52,
+                    child: Text(
+                      '${percentage.toStringAsFixed(1)}%',
+                      textAlign:
+                          TextAlign.end,
+                      style: TextStyle(
+                        color: Colors
+                            .grey
+                            .shade600,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMonthlyGraph() {
+    final monthlySpending =
+        _getMonthlySpending();
+
+    final entries =
+        monthlySpending.entries.toList();
+
+    if (entries.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.all(24),
+        child: Center(
+          child: Text(
+            'No monthly spending data.',
+          ),
+        ),
+      );
+    }
+
+    final maxAmount = entries
+        .map((entry) => entry.value)
+        .reduce(
+          (a, b) => a > b ? a : b,
+        );
+
+    return Column(
+      crossAxisAlignment:
+          CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Monthly Spending',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+
+        const SizedBox(height: 4),
+
+        Text(
+          'Total spending for each month in the filtered range',
+          style: TextStyle(
+            fontSize: 12,
+            color: Colors.grey.shade600,
+          ),
+        ),
+
+        const SizedBox(height: 20),
+
+        SizedBox(
+          height: 280,
+          child: BarChart(
+            BarChartData(
+              maxY: maxAmount == 0
+                  ? 100
+                  : maxAmount * 1.2,
+
+              alignment:
+                  BarChartAlignment.spaceAround,
+
+              barTouchData:
+                  BarTouchData(
+                enabled: true,
+                touchTooltipData:
+                    BarTouchTooltipData(
+                  getTooltipItem:
+                      (
+                    group,
+                    groupIndex,
+                    rod,
+                    rodIndex,
+                  ) {
+                    final entry =
+                        entries[group.x];
+
+                    return BarTooltipItem(
+                      '${_formatMonth(entry.key)}\n'
+                      'Rs. ${entry.value.toStringAsFixed(2)}',
+                      const TextStyle(
+                        fontWeight:
+                            FontWeight.bold,
+                      ),
+                    );
+                  },
+                ),
+              ),
+
+              titlesData:
+                  FlTitlesData(
+                topTitles:
+                    const AxisTitles(
+                  sideTitles:
+                      SideTitles(
+                    showTitles: false,
+                  ),
+                ),
+
+                rightTitles:
+                    const AxisTitles(
+                  sideTitles:
+                      SideTitles(
+                    showTitles: false,
+                  ),
+                ),
+
+                leftTitles:
+                    AxisTitles(
+                  sideTitles:
+                      SideTitles(
+                    showTitles: true,
+                    reservedSize: 55,
+                    getTitlesWidget:
+                        (value, meta) {
+                      return Text(
+                        _formatAmount(
+                          value,
+                        ),
+                        style:
+                            const TextStyle(
+                          fontSize: 10,
+                        ),
+                      );
+                    },
+                  ),
+                ),
+
+                bottomTitles:
+                    AxisTitles(
+                  sideTitles:
+                      SideTitles(
+                    showTitles: true,
+                    reservedSize: 45,
+                    getTitlesWidget:
+                        (value, meta) {
+                      final index =
+                          value.toInt();
+
+                      if (index < 0 ||
+                          index >=
+                              entries.length) {
+                        return const SizedBox
+                            .shrink();
+                      }
+
+                      final month =
+                          _formatMonth(
+                        entries[index].key,
+                      );
+
+                      return Padding(
+                        padding:
+                            const EdgeInsets
+                                .only(
+                          top: 8,
+                        ),
+                        child: Text(
+                          month.length > 10
+                              ? month
+                                  .substring(
+                                  0,
+                                  3,
+                                )
+                              : month,
+                          style:
+                              const TextStyle(
+                            fontSize: 10,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+
+              borderData:
+                  FlBorderData(
+                show: false,
+              ),
+
+              gridData:
+                  FlGridData(
+                show: true,
+                drawVerticalLine: false,
+              ),
+
+              barGroups:
+                  List.generate(
+                entries.length,
+                (index) {
+                  return BarChartGroupData(
+                    x: index,
+                    barRods: [
+                      BarChartRodData(
+                        toY:
+                            entries[index]
+                                .value,
+                        width: 24,
+                        borderRadius:
+                            const BorderRadius
+                                .vertical(
+                          top: Radius
+                              .circular(5),
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+
+        const SizedBox(height: 16),
+
+        ...entries.map(
+          (entry) {
+            return Padding(
+              padding:
+                  const EdgeInsets.symmetric(
+                vertical: 4,
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      _formatMonth(
+                        entry.key,
+                      ),
+                    ),
+                  ),
+                  Text(
+                    'Rs. ${entry.value.toStringAsFixed(2)}',
+                    style:
+                        const TextStyle(
+                      fontWeight:
+                          FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+      ],
     );
   }
 }

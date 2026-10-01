@@ -1,15 +1,12 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
-import '../utils/constants.dart';
 import '../models/expense.dart';
 import '../services/auth_service.dart';
 import '../services/expense_service.dart';
 import '../utils/expense_filter.dart';
 import '../widgets/error_state.dart';
-import '../widgets/expense_card.dart';
 import '../widgets/expense_chart.dart';
-import '../widgets/expense_summary.dart';
 import 'expense_form_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -21,83 +18,115 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final ExpenseService _expenseService = ExpenseService();
+  final AuthService _authService = AuthService();
 
   final TextEditingController _searchController =
       TextEditingController();
 
-  final ValueNotifier<String> _searchQuery =
+  // Keeps the exact scroll position when the UI rebuilds.
+  final ScrollController _scrollController = ScrollController();
+
+  // Search changes only notify the parts that need to update.
+  final ValueNotifier<String> _searchNotifier =
       ValueNotifier<String>('');
-
-  final ScrollController _scrollController =
-      ScrollController();
-
-  Stream<List<Expense>>? _expenseStream;
 
   String? _selectedCategory;
   DateTime? _startDate;
   DateTime? _endDate;
 
-  User? get _currentUser =>
-      FirebaseAuth.instance.currentUser;
-
   @override
   void initState() {
     super.initState();
 
-    _setupExpenseStream();
-
-    _searchController.addListener(() {
-      _searchQuery.value =
-          _searchController.text.trim();
-    });
+    _searchController.addListener(_onSearchChanged);
   }
 
-  void _setupExpenseStream() {
-    if (FirebaseAuth.instance.currentUser != null) {
-      _expenseStream =
-          _expenseService.getExpenses();
-    } else {
-      _expenseStream = null;
-    }
+  void _onSearchChanged() {
+    _searchNotifier.value = _searchController.text;
   }
 
   @override
   void dispose() {
+    _searchController.removeListener(_onSearchChanged);
     _searchController.dispose();
-    _searchQuery.dispose();
+    _searchNotifier.dispose();
     _scrollController.dispose();
-
     super.dispose();
   }
 
-  // ------------------------------------------------------------
-  // LOGOUT
-  // ------------------------------------------------------------
-
-  Future<void> _logout() async {
-    try {
-      await AuthService().logout();
-    } catch (e) {
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Logout failed: $e'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    }
+  List<Expense> _filterExpenses(
+    List<Expense> expenses,
+    String searchText,
+  ) {
+    return ExpenseFilter.filter(
+      expenses: expenses,
+      searchQuery: searchText,
+      selectedCategory: _selectedCategory,
+      startDate: _startDate,
+      endDate: _endDate,
+    );
   }
 
-  Future<void> _confirmLogout() async {
-    final shouldLogout =
-        await showDialog<bool>(
+  double _calculateTotal(List<Expense> expenses) {
+    return expenses.fold(
+      0.0,
+      (total, expense) => total + expense.amount,
+    );
+  }
+
+  double _calculateThisMonthTotal(List<Expense> expenses) {
+    final now = DateTime.now();
+
+    return expenses
+        .where(
+          (expense) =>
+              expense.date.year == now.year &&
+              expense.date.month == now.month,
+        )
+        .fold(
+          0.0,
+          (total, expense) => total + expense.amount,
+        );
+  }
+
+  int _calculateThisMonthCount(List<Expense> expenses) {
+    final now = DateTime.now();
+
+    return expenses.where(
+      (expense) =>
+          expense.date.year == now.year &&
+          expense.date.month == now.month,
+    ).length;
+  }
+
+  Future<void> _openAddExpense() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const ExpenseFormScreen(),
+      ),
+    );
+  }
+
+  Future<void> _openEditExpense(Expense expense) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ExpenseFormScreen(
+          expense: expense,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _deleteExpense(Expense expense) async {
+    final shouldDelete = await showDialog<bool>(
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: const Text('Logout'),
-          content: const Text(
-            'Are you sure you want to logout?',
+          title: const Text('Delete Expense'),
+          content: Text(
+            'Are you sure you want to delete "${expense.title}"?',
           ),
           actions: [
             TextButton(
@@ -110,411 +139,264 @@ class _HomeScreenState extends State<HomeScreen> {
               onPressed: () {
                 Navigator.pop(context, true);
               },
-              child: const Text('Logout'),
+              child: const Text('Delete'),
             ),
           ],
         );
       },
     );
 
-    if (shouldLogout == true) {
-      await _logout();
-    }
-  }
-
-  // ------------------------------------------------------------
-  // FILTER HELPERS
-  // ------------------------------------------------------------
-
-  bool get _hasFilters {
-    return _selectedCategory != null ||
-        _startDate != null ||
-        _endDate != null;
-  }
-
-  List<Expense> _filterExpenses(
-    List<Expense> expenses,
-  ) {
-    return ExpenseFilter.filter(
-      expenses: expenses,
-      searchQuery: _searchQuery.value,
-      selectedCategory: _selectedCategory,
-      startDate: _startDate,
-      endDate: _endDate,
-    );
-  }
-
-  String _dateFilterText() {
-    if (_startDate == null && _endDate == null) {
-      return 'All dates';
+    if (shouldDelete != true) {
+      return;
     }
 
-    String formatDate(DateTime date) {
-      return '${date.day.toString().padLeft(2, '0')}/'
-          '${date.month.toString().padLeft(2, '0')}/'
-          '${date.year}';
-    }
+    try {
+      await _expenseService.deleteExpense(expense.id);
 
-    if (_startDate != null && _endDate != null) {
-      return '${formatDate(_startDate!)} - '
-          '${formatDate(_endDate!)}';
-    }
+      if (!mounted) return;
 
-    if (_startDate != null) {
-      return 'From ${formatDate(_startDate!)}';
-    }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Expense deleted successfully'),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
 
-    return 'Until ${formatDate(_endDate!)}';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to delete expense: $e'),
+        ),
+      );
+    }
   }
-
-  void _clearFilters() {
-    setState(() {
-      _selectedCategory = null;
-      _startDate = null;
-      _endDate = null;
-    });
-  }
-
-  // ------------------------------------------------------------
-  // FILTER BOTTOM SHEET
-  // ------------------------------------------------------------
 
   Future<void> _showFilterSheet() async {
-    String? temporaryCategory =
-        _selectedCategory;
+    String? tempCategory = _selectedCategory;
+    DateTime? tempStartDate = _startDate;
+    DateTime? tempEndDate = _endDate;
 
-    DateTime? temporaryStartDate =
-        _startDate;
-
-    DateTime? temporaryEndDate =
-        _endDate;
-
-    final result =
-        await showModalBottomSheet<bool>(
+    await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      showDragHandle: true,
       builder: (context) {
         return StatefulBuilder(
-          builder: (
-            context,
-            setModalState,
-          ) {
-            Future<void> selectStartDate() async {
-              final selected =
-                  await showDatePicker(
-                context: context,
-                initialDate:
-                    temporaryStartDate ??
-                        DateTime.now(),
-                firstDate: DateTime(2020),
-                lastDate: DateTime(2100),
-                helpText:
-                    'Select start date',
-              );
-
-              if (selected != null) {
-                setModalState(() {
-                  temporaryStartDate =
-                      selected;
-                });
-              }
-            }
-
-            Future<void> selectEndDate() async {
-              final selected =
-                  await showDatePicker(
-                context: context,
-                initialDate:
-                    temporaryEndDate ??
-                        DateTime.now(),
-                firstDate: DateTime(2020),
-                lastDate: DateTime(2100),
-                helpText:
-                    'Select end date',
-              );
-
-              if (selected != null) {
-                setModalState(() {
-                  temporaryEndDate =
-                      selected;
-                });
-              }
-            }
-
-            final invalidDateRange =
-                temporaryStartDate != null &&
-                    temporaryEndDate != null &&
-                    temporaryEndDate!
-                        .isBefore(
-                      temporaryStartDate!,
-                    );
-
-            return SafeArea(
-              child: Padding(
-                padding: EdgeInsets.only(
-                  left: 20,
-                  right: 20,
-                  top: 20,
-                  bottom:
-                      MediaQuery.of(context)
-                              .viewInsets
-                              .bottom +
-                          20,
-                ),
-                child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize:
-                        MainAxisSize.min,
-                    crossAxisAlignment:
-                        CrossAxisAlignment.start,
-                    children: [
-                      // TITLE
-                      Row(
-                        children: [
-                          const Expanded(
-                            child: Text(
-                              'Filter Expenses',
-                              style:
-                                  TextStyle(
-                                fontSize: 22,
-                                fontWeight:
-                                    FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                          IconButton(
-                            onPressed: () {
-                              Navigator.pop(
-                                context,
-                                false,
-                              );
-                            },
-                            icon: const Icon(
-                              Icons.close,
-                            ),
-                          ),
-                        ],
+          builder: (context, setSheetState) {
+            return Padding(
+              padding: EdgeInsets.only(
+                left: 20,
+                right: 20,
+                top: 10,
+                bottom:
+                    MediaQuery.of(context).viewInsets.bottom + 20,
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment:
+                      CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Filter Expenses',
+                      style: TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold,
                       ),
+                    ),
 
-                      const SizedBox(height: 20),
+                    const SizedBox(height: 20),
 
-                      // CATEGORY
-                      const Text(
-                        'Category',
-                        style: TextStyle(
-                          fontWeight:
-                              FontWeight.w600,
-                          fontSize: 16,
-                        ),
+                    DropdownButtonFormField<String?>(
+                      initialValue: tempCategory,
+                      decoration: const InputDecoration(
+                        labelText: 'Category',
+                        prefixIcon:
+                            Icon(Icons.category_outlined),
+                        border: OutlineInputBorder(),
                       ),
-
-                      const SizedBox(height: 8),
-
-                      DropdownButtonFormField<String?>(
-                        value:
-                            temporaryCategory,
-                        decoration:
-                            const InputDecoration(
-                          border:
-                              OutlineInputBorder(),
-                          hintText:
-                              'All categories',
+                      items: [
+                        const DropdownMenuItem<String?>(
+                          value: null,
+                          child: Text('All Categories'),
                         ),
-                        items: [
-                          const DropdownMenuItem<
-                              String?>(
-                            value: null,
-                            child: Text(
-                              'All categories',
-                            ),
-                          ),
-                          ...AppConstants
-                              .categories
-                              .map(
-                            (category) {
-                              return DropdownMenuItem<
-                                  String?>(
-                                value: category,
-                                child:
-                                    Text(category),
-                              );
-                            },
-                          ),
-                        ],
-                        onChanged: (value) {
-                          setModalState(() {
-                            temporaryCategory =
-                                value;
-                          });
-                        },
-                      ),
-
-                      const SizedBox(height: 20),
-
-                      // START DATE
-                      const Text(
-                        'Start Date',
-                        style: TextStyle(
-                          fontWeight:
-                              FontWeight.w600,
-                          fontSize: 16,
-                        ),
-                      ),
-
-                      const SizedBox(height: 8),
-
-                      InkWell(
-                        onTap: selectStartDate,
-                        borderRadius:
-                            BorderRadius.circular(
-                          12,
-                        ),
-                        child: InputDecorator(
-                          decoration:
-                              const InputDecoration(
-                            border:
-                                OutlineInputBorder(),
-                            suffixIcon: Icon(
-                              Icons.calendar_today,
-                            ),
-                          ),
-                          child: Text(
-                            temporaryStartDate ==
-                                    null
-                                ? 'Select start date'
-                                : '${temporaryStartDate!.day.toString().padLeft(2, '0')}/'
-                                    '${temporaryStartDate!.month.toString().padLeft(2, '0')}/'
-                                    '${temporaryStartDate!.year}',
-                          ),
-                        ),
-                      ),
-
-                      const SizedBox(height: 20),
-
-                      // END DATE
-                      const Text(
-                        'End Date',
-                        style: TextStyle(
-                          fontWeight:
-                              FontWeight.w600,
-                          fontSize: 16,
-                        ),
-                      ),
-
-                      const SizedBox(height: 8),
-
-                      InkWell(
-                        onTap: selectEndDate,
-                        borderRadius:
-                            BorderRadius.circular(
-                          12,
-                        ),
-                        child: InputDecorator(
-                          decoration:
-                              const InputDecoration(
-                            border:
-                                OutlineInputBorder(),
-                            suffixIcon: Icon(
-                              Icons.calendar_today,
-                            ),
-                          ),
-                          child: Text(
-                            temporaryEndDate ==
-                                    null
-                                ? 'Select end date'
-                                : '${temporaryEndDate!.day.toString().padLeft(2, '0')}/'
-                                    '${temporaryEndDate!.month.toString().padLeft(2, '0')}/'
-                                    '${temporaryEndDate!.year}',
-                          ),
-                        ),
-                      ),
-
-                      // INVALID DATE MESSAGE
-                      if (invalidDateRange) ...[
-                        const SizedBox(height: 8),
-                        const Row(
-                          children: [
-                            Icon(
-                              Icons.error_outline,
-                              color: Colors.red,
-                              size: 20,
-                            ),
-                            SizedBox(width: 6),
-                            Expanded(
-                              child: Text(
-                                'End date cannot be before start date.',
-                                style:
-                                    TextStyle(
-                                  color: Colors.red,
-                                ),
-                              ),
-                            ),
-                          ],
+                        ...[
+                          'Food',
+                          'Transport',
+                          'Shopping',
+                          'Bills',
+                          'Entertainment',
+                          'Health',
+                          'Education',
+                          'Other',
+                        ].map(
+                          (category) {
+                            return DropdownMenuItem<String?>(
+                              value: category,
+                              child: Text(category),
+                            );
+                          },
                         ),
                       ],
+                      onChanged: (value) {
+                        setSheetState(() {
+                          tempCategory = value;
+                        });
+                      },
+                    ),
 
-                      const SizedBox(height: 25),
+                    const SizedBox(height: 16),
 
-                      // BUTTONS
-                      Row(
-                        children: [
-                          Expanded(
-                            child:
-                                OutlinedButton(
-                              onPressed: () {
-                                setModalState(
-                                  () {
-                                    temporaryCategory =
-                                        null;
-                                    temporaryStartDate =
-                                        null;
-                                    temporaryEndDate =
-                                        null;
-                                  },
-                                );
-                              },
-                              child:
-                                  const Text(
-                                'Clear',
-                              ),
-                            ),
-                          ),
-
-                          const SizedBox(width: 12),
-
-                          Expanded(
-                            child: FilledButton(
-                              onPressed:
-                                  invalidDateRange
-                                      ? () {
-                                          ScaffoldMessenger
-                                              .of(
-                                            context,
-                                          ).showSnackBar(
-                                            const SnackBar(
-                                              content:
-                                                  Text(
-                                                'Please select a valid date range.',
-                                              ),
-                                            ),
-                                          );
-                                        }
-                                      : () {
-                                          Navigator.pop(
-                                            context,
-                                            true,
-                                          );
-                                        },
-                              child:
-                                  const Text(
-                                'Apply',
-                              ),
-                            ),
-                          ),
-                        ],
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(
+                        Icons.calendar_today,
                       ),
-                    ],
-                  ),
+                      title: const Text('Start Date'),
+                      subtitle: Text(
+                        tempStartDate == null
+                            ? 'Not selected'
+                            : _formatDate(tempStartDate!),
+                      ),
+                      trailing: tempStartDate != null
+                          ? IconButton(
+                              icon: const Icon(Icons.clear),
+                              onPressed: () {
+                                setSheetState(() {
+                                  tempStartDate = null;
+                                });
+                              },
+                            )
+                          : null,
+                      onTap: () async {
+                        final date = await showDatePicker(
+                          context: context,
+                          initialDate:
+                              tempStartDate ??
+                                  DateTime.now(),
+                          firstDate: DateTime(2020),
+                          lastDate: DateTime(2100),
+                        );
+
+                        if (date != null) {
+                          setSheetState(() {
+                            tempStartDate = date;
+
+                            if (tempEndDate != null &&
+                                tempEndDate!.isBefore(date)) {
+                              tempEndDate = date;
+                            }
+                          });
+                        }
+                      },
+                    ),
+
+                    const Divider(),
+
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.event),
+                      title: const Text('End Date'),
+                      subtitle: Text(
+                        tempEndDate == null
+                            ? 'Not selected'
+                            : _formatDate(tempEndDate!),
+                      ),
+                      trailing: tempEndDate != null
+                          ? IconButton(
+                              icon: const Icon(Icons.clear),
+                              onPressed: () {
+                                setSheetState(() {
+                                  tempEndDate = null;
+                                });
+                              },
+                            )
+                          : null,
+                      onTap: () async {
+                        final date = await showDatePicker(
+                          context: context,
+                          initialDate:
+                              tempEndDate ??
+                                  tempStartDate ??
+                                  DateTime.now(),
+                          firstDate:
+                              tempStartDate ??
+                                  DateTime(2020),
+                          lastDate: DateTime(2100),
+                        );
+
+                        if (date != null) {
+                          setSheetState(() {
+                            tempEndDate = date;
+                          });
+                        }
+                      },
+                    ),
+
+                    const SizedBox(height: 20),
+
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () {
+                              setSheetState(() {
+                                tempCategory = null;
+                                tempStartDate = null;
+                                tempEndDate = null;
+                              });
+                            },
+                            child: const Text('Clear'),
+                          ),
+                        ),
+
+                        const SizedBox(width: 12),
+
+                        Expanded(
+                          child: FilledButton(
+                            onPressed: () {
+                              // Remember current scroll position.
+                              final currentOffset =
+                                  _scrollController.hasClients
+                                      ? _scrollController.offset
+                                      : 0.0;
+
+                              setState(() {
+                                _selectedCategory =
+                                    tempCategory;
+                                _startDate = tempStartDate;
+                                _endDate = tempEndDate;
+                              });
+
+                              Navigator.pop(context);
+
+                              // Restore position after rebuild.
+                              WidgetsBinding.instance
+                                  .addPostFrameCallback((_) {
+                                if (!_scrollController
+                                    .hasClients) {
+                                  return;
+                                }
+
+                                final maxOffset =
+                                    _scrollController
+                                        .position
+                                        .maxScrollExtent;
+
+                                _scrollController.jumpTo(
+                                  currentOffset.clamp(
+                                    0.0,
+                                    maxOffset,
+                                  ),
+                                );
+                              });
+                            },
+                            child: const Text('Apply'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
               ),
             );
@@ -522,50 +404,81 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       },
     );
-
-    if (result == true) {
-      setState(() {
-        _selectedCategory =
-            temporaryCategory;
-
-        _startDate =
-            temporaryStartDate;
-
-        _endDate =
-            temporaryEndDate;
-      });
-    }
   }
 
-  // ------------------------------------------------------------
-  // ADD EXPENSE
-  // ------------------------------------------------------------
+  void _clearAllFilters() {
+    final currentOffset =
+        _scrollController.hasClients
+            ? _scrollController.offset
+            : 0.0;
 
-  Future<void> _addExpense() async {
-    if (_currentUser == null) return;
+    _searchController.clear();
 
-    await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) =>
-            const ExpenseFormScreen(),
-      ),
-    );
+    setState(() {
+      _selectedCategory = null;
+      _startDate = null;
+      _endDate = null;
+    });
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_scrollController.hasClients) {
+        return;
+      }
+
+      final maxOffset =
+          _scrollController.position.maxScrollExtent;
+
+      _scrollController.jumpTo(
+        currentOffset.clamp(0.0, maxOffset),
+      );
+    });
   }
 
-  // ------------------------------------------------------------
-  // BUILD
-  // ------------------------------------------------------------
+  String _formatDate(DateTime date) {
+    return '${date.day.toString().padLeft(2, '0')}/'
+        '${date.month.toString().padLeft(2, '0')}/'
+        '${date.year}';
+  }
+
+  String _formatCurrency(double amount) {
+    return 'Rs. ${amount.toStringAsFixed(2)}';
+  }
+
+  String _currentMonthName() {
+    const months = [
+      'January',
+      'February',
+      'March',
+      'April',
+      'May',
+      'June',
+      'July',
+      'August',
+      'September',
+      'October',
+      'November',
+      'December',
+    ];
+
+    return months[DateTime.now().month - 1];
+  }
+
+  bool _hasActiveFilters(String searchText) {
+    return searchText.trim().isNotEmpty ||
+        _selectedCategory != null ||
+        _startDate != null ||
+        _endDate != null;
+  }
 
   @override
   Widget build(BuildContext context) {
-    final user = _currentUser;
+    final user = FirebaseAuth.instance.currentUser;
 
-    // Prevent temporary Firestore
-    // permission errors during logout.
     if (user == null) {
       return const Scaffold(
-        body: SizedBox.shrink(),
+        body: Center(
+          child: Text('Please login again.'),
+        ),
       );
     }
 
@@ -577,266 +490,301 @@ class _HomeScreenState extends State<HomeScreen> {
             fontWeight: FontWeight.bold,
           ),
         ),
-
         actions: [
           IconButton(
-            tooltip: 'Refresh',
-            onPressed: () {
-              setState(() {
-                _setupExpenseStream();
-              });
-            },
-            icon: const Icon(
-              Icons.refresh,
-            ),
-          ),
-
-          IconButton(
             tooltip: 'Logout',
-            onPressed: _confirmLogout,
-            icon: const Icon(
-              Icons.logout,
-            ),
+            icon: const Icon(Icons.logout),
+            onPressed: () async {
+              await _authService.logout();
+            },
           ),
         ],
-
-        bottom: PreferredSize(
-          preferredSize:
-              const Size.fromHeight(35),
-
-          child: Padding(
-            padding:
-                const EdgeInsets.only(
-              left: 16,
-              right: 16,
-              bottom: 8,
-            ),
-
-            child: Align(
-              alignment:
-                  Alignment.centerLeft,
-
-              child: Text(
-                user.email ??
-                    'Logged in user',
-                style: Theme.of(context)
-                    .textTheme
-                    .bodySmall,
-              ),
-            ),
-          ),
-        ),
       ),
 
       body: StreamBuilder<List<Expense>>(
-        stream: _expenseStream,
-
-        builder: (
-          context,
-          snapshot,
-        ) {
-          // Prevent Firestore error
-          // after logout.
-          if (FirebaseAuth
-                  .instance
-                  .currentUser ==
-              null) {
+        stream: _expenseService.getExpenses(),
+        builder: (context, snapshot) {
+          if (FirebaseAuth.instance.currentUser == null) {
             return const SizedBox.shrink();
           }
 
-          // LOADING
           if (snapshot.connectionState ==
               ConnectionState.waiting) {
             return const Center(
-              child:
-                  CircularProgressIndicator(),
+              child: CircularProgressIndicator(),
             );
           }
 
-          // ERROR
           if (snapshot.hasError) {
             return ErrorState(
-              message:
-                  snapshot.error.toString(),
+              message: snapshot.error.toString(),
               onRetry: () {
-                setState(() {
-                  _setupExpenseStream();
-                });
+                setState(() {});
               },
             );
           }
 
-          final allExpenses =
-              snapshot.data ?? <Expense>[];
+          final allExpenses = snapshot.data ?? [];
 
-          return ValueListenableBuilder<
-              String>(
-            valueListenable:
-                _searchQuery,
-
-            builder: (
-              context,
-              searchQuery,
-              child,
-            ) {
-              final currentExpenses =
-                  _filterExpenses(
+          return ValueListenableBuilder<String>(
+            valueListenable: _searchNotifier,
+            builder: (context, searchText, _) {
+              final filteredExpenses = _filterExpenses(
                 allExpenses,
+                searchText,
               );
+
+              final filteredTotal =
+                  _calculateTotal(filteredExpenses);
+
+              final thisMonthTotal =
+                  _calculateThisMonthTotal(allExpenses);
+
+              final thisMonthCount =
+                  _calculateThisMonthCount(allExpenses);
+
+              final hasActiveFilters =
+                  _hasActiveFilters(searchText);
 
               return RefreshIndicator(
                 onRefresh: () async {
-                  setState(() {
-                    _setupExpenseStream();
-                  });
-
-                  await Future.delayed(
-                    const Duration(
-                      milliseconds: 300,
-                    ),
+                  // Firestore stream automatically updates.
+                  // No unnecessary rebuild is required.
+                  await Future<void>.delayed(
+                    const Duration(milliseconds: 300),
                   );
                 },
 
                 child: CustomScrollView(
-                  controller:
-                      _scrollController,
+                  key: const PageStorageKey(
+                    'expense-home-scroll',
+                  ),
+
+                  controller: _scrollController,
 
                   physics:
                       const AlwaysScrollableScrollPhysics(),
 
                   slivers: [
-                    // ------------------------------------------------
-                    // HEADER
-                    // ------------------------------------------------
 
                     SliverToBoxAdapter(
                       child: Padding(
                         padding:
-                            const EdgeInsets
-                                .fromLTRB(
+                            const EdgeInsets.fromLTRB(
                           16,
                           16,
                           16,
                           0,
                         ),
-
                         child: Column(
                           crossAxisAlignment:
-                              CrossAxisAlignment
-                                  .start,
-
+                              CrossAxisAlignment.start,
                           children: [
-                            // SUMMARY
-                            ExpenseSummary(
-                              expenses:
-                                  allExpenses,
-                            ),
-
-                            const SizedBox(
-                              height: 16,
-                            ),
-
-                            // SEARCH
-                            TextField(
-                              controller:
-                                  _searchController,
-
-                              textInputAction:
-                                  TextInputAction
-                                      .search,
-
-                              decoration:
-                                  InputDecoration(
-                                hintText:
-                                    'Search expenses by title...',
-
-                                prefixIcon:
-                                    const Icon(
-                                  Icons.search,
-                                ),
-
-                                suffixIcon:
-                                    searchQuery
-                                            .isNotEmpty
-                                        ? IconButton(
-                                            onPressed:
-                                                () {
-                                              _searchController
-                                                  .clear();
-                                            },
-                                            icon:
-                                                const Icon(
-                                              Icons.clear,
-                                            ),
-                                          )
-                                        : null,
-
-                                border:
-                                    OutlineInputBorder(
-                                  borderRadius:
-                                      BorderRadius
-                                          .circular(
-                                    14,
+                            Text(
+                              'Welcome back!',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .headlineSmall
+                                  ?.copyWith(
+                                    fontWeight:
+                                        FontWeight.bold,
                                   ),
+                            ),
+
+                            const SizedBox(height: 4),
+
+                            Text(
+                              user.email ?? '',
+                              style: TextStyle(
+                                color:
+                                    Colors.grey.shade600,
+                              ),
+                            ),
+
+                            const SizedBox(height: 20),
+
+
+                            Card(
+                              elevation: 2,
+                              child: Padding(
+                                padding:
+                                    const EdgeInsets.all(20),
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Container(
+                                          padding:
+                                              const EdgeInsets
+                                                  .all(12),
+                                          decoration:
+                                              BoxDecoration(
+                                            color: Theme.of(
+                                              context,
+                                            )
+                                                .colorScheme
+                                                .primaryContainer,
+                                            borderRadius:
+                                                BorderRadius
+                                                    .circular(
+                                              14,
+                                            ),
+                                          ),
+                                          child: Icon(
+                                            Icons
+                                                .account_balance_wallet_outlined,
+                                            color: Theme.of(
+                                              context,
+                                            )
+                                                .colorScheme
+                                                .onPrimaryContainer,
+                                            size: 28,
+                                          ),
+                                        ),
+
+                                        const SizedBox(width: 14),
+
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment
+                                                    .start,
+                                            children: [
+                                              const Text(
+                                                'This Month Expenses',
+                                                style: TextStyle(
+                                                  fontSize: 16,
+                                                  fontWeight:
+                                                      FontWeight
+                                                          .w600,
+                                                ),
+                                              ),
+                                              const SizedBox(
+                                                height: 3,
+                                              ),
+                                              Text(
+                                                _currentMonthName(),
+                                                style: TextStyle(
+                                                  color: Colors
+                                                      .grey
+                                                      .shade600,
+                                                  fontSize: 13,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+
+                                    const SizedBox(height: 20),
+
+                                    Text(
+                                      _formatCurrency(
+                                        thisMonthTotal,
+                                      ),
+                                      style:
+                                          const TextStyle(
+                                        fontSize: 30,
+                                        fontWeight:
+                                            FontWeight.bold,
+                                      ),
+                                    ),
+
+                                    const SizedBox(height: 6),
+
+                                    Text(
+                                      '$thisMonthCount '
+                                      'expense${thisMonthCount == 1 ? '' : 's'} this month',
+                                      style: TextStyle(
+                                        color: Colors
+                                            .grey
+                                            .shade600,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
                             ),
 
-                            const SizedBox(
-                              height: 12,
+                            const SizedBox(height: 16),
+
+
+                            TextField(
+                              controller: _searchController,
+                              textInputAction:
+                                  TextInputAction.search,
+                              decoration: InputDecoration(
+                                hintText:
+                                    'Search expenses by title...',
+                                prefixIcon:
+                                    const Icon(Icons.search),
+
+                                suffixIcon:
+                                    searchText.isNotEmpty
+                                        ? IconButton(
+                                            tooltip:
+                                                'Clear search',
+                                            icon:
+                                                const Icon(
+                                              Icons.clear,
+                                            ),
+                                            onPressed: () {
+                                              _searchController
+                                                  .clear();
+                                            },
+                                          )
+                                        : null,
+
+                                border:
+                                    const OutlineInputBorder(),
+
+                                filled: true,
+                              ),
                             ),
 
-                            // FILTER BUTTON
+                            const SizedBox(height: 12),
+
+
                             Row(
                               children: [
                                 Expanded(
                                   child:
-                                      OutlinedButton
-                                          .icon(
+                                      OutlinedButton.icon(
                                     onPressed:
                                         _showFilterSheet,
-
-                                    icon:
-                                        const Icon(
-                                      Icons
-                                          .filter_list,
+                                    icon: const Icon(
+                                      Icons.filter_list,
                                     ),
-
                                     label: Text(
-                                      _hasFilters
-                                          ? 'Filters applied'
+                                      hasActiveFilters
+                                          ? 'Filters Applied'
                                           : 'Filter',
                                     ),
                                   ),
                                 ),
 
-                                if (_hasFilters) ...[
-                                  const SizedBox(
-                                    width: 8,
-                                  ),
+                                if (hasActiveFilters) ...[
+                                  const SizedBox(width: 8),
 
                                   IconButton(
                                     tooltip:
                                         'Clear filters',
-
                                     onPressed:
-                                        _clearFilters,
-
-                                    icon:
-                                        const Icon(
-                                      Icons
-                                          .clear_all,
+                                        _clearAllFilters,
+                                    icon: const Icon(
+                                      Icons.filter_alt_off,
                                     ),
                                   ),
                                 ],
                               ],
                             ),
 
-                            // FILTER CHIPS
-                            if (_hasFilters) ...[
-                              const SizedBox(
-                                height: 8,
-                              ),
+
+                            if (hasActiveFilters) ...[
+                              const SizedBox(height: 10),
 
                               Wrap(
                                 spacing: 8,
@@ -845,8 +793,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   if (_selectedCategory !=
                                       null)
                                     Chip(
-                                      avatar:
-                                          const Icon(
+                                      avatar: const Icon(
                                         Icons.category,
                                         size: 18,
                                       ),
@@ -855,124 +802,238 @@ class _HomeScreenState extends State<HomeScreen> {
                                       ),
                                     ),
 
-                                  if (_startDate != null ||
-                                      _endDate != null)
+                                  if (_startDate != null)
                                     Chip(
-                                      avatar:
-                                          const Icon(
-                                        Icons.date_range,
+                                      avatar: const Icon(
+                                        Icons.calendar_today,
                                         size: 18,
                                       ),
                                       label: Text(
-                                        _dateFilterText(),
+                                        'From ${_formatDate(_startDate!)}',
+                                      ),
+                                    ),
+
+                                  if (_endDate != null)
+                                    Chip(
+                                      avatar: const Icon(
+                                        Icons.event,
+                                        size: 18,
+                                      ),
+                                      label: Text(
+                                        'To ${_formatDate(_endDate!)}',
+                                      ),
+                                    ),
+
+                                  if (searchText
+                                      .trim()
+                                      .isNotEmpty)
+                                    Chip(
+                                      avatar: const Icon(
+                                        Icons.search,
+                                        size: 18,
+                                      ),
+                                      label: Text(
+                                        '"${searchText.trim()}"',
                                       ),
                                     ),
                                 ],
                               ),
                             ],
 
-                            const SizedBox(
-                              height: 20,
-                            ),
+                            const SizedBox(height: 16),
 
-                            // CHART
-                            if (allExpenses
-                                .isNotEmpty) ...[
+
+                            if (hasActiveFilters)
+                              Card(
+                                child: Padding(
+                                  padding:
+                                      const EdgeInsets.all(
+                                    18,
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      const Icon(
+                                        Icons.filter_alt,
+                                      ),
+                                      const SizedBox(
+                                        width: 12,
+                                      ),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment
+                                                  .start,
+                                          children: [
+                                            Text(
+                                              'Filtered Total',
+                                              style: TextStyle(
+                                                color: Colors
+                                                    .grey
+                                                    .shade600,
+                                              ),
+                                            ),
+                                            const SizedBox(
+                                              height: 4,
+                                            ),
+                                            Text(
+                                              _formatCurrency(
+                                                filteredTotal,
+                                              ),
+                                              style:
+                                                  const TextStyle(
+                                                fontSize: 20,
+                                                fontWeight:
+                                                    FontWeight
+                                                        .bold,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+
+                            if (hasActiveFilters)
+                              const SizedBox(height: 16),
+
+
+                            if (filteredExpenses.isNotEmpty)
                               ExpenseChart(
-                                expenses:
-                                    allExpenses,
+                                key: const ValueKey(
+                                  'expense-chart',
+                                ),
+                                expenses: filteredExpenses,
                               ),
 
-                              const SizedBox(
-                                height: 20,
-                              ),
-                            ],
+                            if (filteredExpenses.isNotEmpty)
+                              const SizedBox(height: 20),
 
-                            // RESULT COUNT
-                            Text(
-                              searchQuery.isNotEmpty ||
-                                      _hasFilters
-                                  ? '${currentExpenses.length} expense(s) found'
-                                  : '${allExpenses.length} expense(s)',
 
-                              style:
-                                  Theme.of(
-                                context,
-                              )
-                                      .textTheme
-                                      .titleMedium
-                                      ?.copyWith(
-                                fontWeight:
-                                    FontWeight.w600,
-                              ),
+                            Row(
+                              children: [
+                                const Expanded(
+                                  child: Text(
+                                    'Expenses',
+                                    style: TextStyle(
+                                      fontSize: 20,
+                                      fontWeight:
+                                          FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+
+                                Text(
+                                  '${filteredExpenses.length} item'
+                                  '${filteredExpenses.length == 1 ? '' : 's'}',
+                                  style: TextStyle(
+                                    color:
+                                        Colors.grey.shade600,
+                                  ),
+                                ),
+                              ],
                             ),
 
-                            const SizedBox(
-                              height: 8,
-                            ),
+                            const SizedBox(height: 12),
                           ],
                         ),
                       ),
                     ),
 
-                    // ------------------------------------------------
-                    // EMPTY / LIST
-                    // ------------------------------------------------
 
-                    if (currentExpenses.isEmpty)
-                      SliverFillRemaining(
-                        hasScrollBody: false,
+                    if (filteredExpenses.isEmpty)
+                      SliverToBoxAdapter(
+                        child: Padding(
+                          padding:
+                              const EdgeInsets.all(24),
+                          child: Center(
+                            child: Column(
+                              children: [
+                                Icon(
+                                  hasActiveFilters
+                                      ? Icons
+                                          .search_off_outlined
+                                      : Icons
+                                          .receipt_long_outlined,
+                                  size: 64,
+                                  color:
+                                      Colors.grey.shade400,
+                                ),
 
-                        child:
-                            _buildEmptyState(
-                          hasAnyExpenses:
-                              allExpenses
-                                  .isNotEmpty,
+                                const SizedBox(height: 16),
+
+                                Text(
+                                  hasActiveFilters
+                                      ? 'No matching expenses'
+                                      : 'No expenses yet',
+                                  style:
+                                      const TextStyle(
+                                    fontSize: 20,
+                                    fontWeight:
+                                        FontWeight.bold,
+                                  ),
+                                ),
+
+                                const SizedBox(height: 8),
+
+                                Text(
+                                  hasActiveFilters
+                                      ? 'Try changing your search or filters.'
+                                      : 'Add your first expense to get started.',
+                                  textAlign:
+                                      TextAlign.center,
+                                  style: TextStyle(
+                                    color:
+                                        Colors.grey.shade600,
+                                  ),
+                                ),
+
+                                if (hasActiveFilters) ...[
+                                  const SizedBox(height: 16),
+
+                                  OutlinedButton(
+                                    onPressed:
+                                        _clearAllFilters,
+                                    child: const Text(
+                                      'Clear Filters',
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
                         ),
                       )
                     else
-                      SliverPadding(
-                        padding:
-                            const EdgeInsets
-                                .fromLTRB(
-                          16,
-                          8,
-                          16,
-                          100,
-                        ),
 
-                        sliver: SliverList(
-                          delegate:
-                              SliverChildBuilderDelegate(
-                            (
-                              context,
-                              index,
-                            ) {
-                              final expense =
-                                  currentExpenses[
-                                      index];
+                      SliverList(
+                        delegate:
+                            SliverChildBuilderDelegate(
+                          (context, index) {
+                            final expense =
+                                filteredExpenses[index];
 
-                              return Padding(
-                                padding:
-                                    const EdgeInsets
-                                        .only(
-                                  bottom: 10,
-                                ),
-
-                                child:
-                                    ExpenseCard(
-                                  expense:
-                                      expense,
-                                ),
-                              );
-                            },
-
-                            childCount:
-                                currentExpenses
-                                    .length,
-                          ),
+                            return Padding(
+                              padding:
+                                  const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 5,
+                              ),
+                              child:
+                                  _buildExpenseCard(
+                                expense,
+                              ),
+                            );
+                          },
+                          childCount:
+                              filteredExpenses.length,
                         ),
                       ),
+
+                    const SliverToBoxAdapter(
+                      child: SizedBox(height: 100),
+                    ),
                   ],
                 ),
               );
@@ -981,127 +1042,224 @@ class _HomeScreenState extends State<HomeScreen> {
         },
       ),
 
+
       floatingActionButton:
           FloatingActionButton.extended(
-        onPressed: _addExpense,
+        onPressed: _openAddExpense,
+        icon: const Icon(Icons.add),
+        label: const Text('Add Expense'),
+      ),
+    );
+  }
 
-        icon: const Icon(
-          Icons.add,
-        ),
+  Widget _buildExpenseCard(Expense expense) {
+    return Card(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => _openEditExpense(expense),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: Theme.of(context)
+                      .colorScheme
+                      .primaryContainer,
+                  borderRadius:
+                      BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  _getCategoryIcon(
+                    expense.category,
+                  ),
+                  color: Theme.of(context)
+                      .colorScheme
+                      .onPrimaryContainer,
+                ),
+              ),
 
-        label: const Text(
-          'Add Expense',
+              const SizedBox(width: 14),
+
+              Expanded(
+                child: Column(
+                  crossAxisAlignment:
+                      CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      expense.title,
+                      maxLines: 1,
+                      overflow:
+                          TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight:
+                            FontWeight.bold,
+                      ),
+                    ),
+
+                    const SizedBox(height: 5),
+
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            expense.category,
+                            overflow:
+                                TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color:
+                                  Colors.grey.shade600,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ),
+
+                        const SizedBox(width: 8),
+
+                        Text(
+                          '•',
+                          style: TextStyle(
+                            color:
+                                Colors.grey.shade500,
+                          ),
+                        ),
+
+                        const SizedBox(width: 8),
+
+                        Text(
+                          _formatDate(
+                            expense.date,
+                          ),
+                          style: TextStyle(
+                            color:
+                                Colors.grey.shade600,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    if (expense.note != null &&
+                        expense.note!
+                            .trim()
+                            .isNotEmpty) ...[
+                      const SizedBox(height: 5),
+
+                      Text(
+                        expense.note!,
+                        maxLines: 1,
+                        overflow:
+                            TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color:
+                              Colors.grey.shade600,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+
+              const SizedBox(width: 8),
+
+              Column(
+                crossAxisAlignment:
+                    CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    'Rs. ${expense.amount.toStringAsFixed(2)}',
+                    style: const TextStyle(
+                      fontWeight:
+                          FontWeight.bold,
+                      fontSize: 15,
+                    ),
+                  ),
+
+                  PopupMenuButton<String>(
+                    padding: EdgeInsets.zero,
+                    iconSize: 22,
+                    onSelected: (value) {
+                      if (value == 'edit') {
+                        _openEditExpense(
+                          expense,
+                        );
+                      } else if (value ==
+                          'delete') {
+                        _deleteExpense(
+                          expense,
+                        );
+                      }
+                    },
+                    itemBuilder: (context) {
+                      return const [
+                        PopupMenuItem<String>(
+                          value: 'edit',
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons
+                                    .edit_outlined,
+                              ),
+                              SizedBox(width: 10),
+                              Text('Edit'),
+                            ],
+                          ),
+                        ),
+                        PopupMenuItem<String>(
+                          value: 'delete',
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons
+                                    .delete_outline,
+                              ),
+                              SizedBox(width: 10),
+                              Text('Delete'),
+                            ],
+                          ),
+                        ),
+                      ];
+                    },
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  // ------------------------------------------------------------
-  // EMPTY STATE
-  // ------------------------------------------------------------
+  IconData _getCategoryIcon(String category) {
+    switch (category) {
+      case 'Food':
+        return Icons.restaurant_outlined;
 
-  Widget _buildEmptyState({
-    required bool hasAnyExpenses,
-  }) {
-    final hasSearch =
-        _searchQuery.value.isNotEmpty;
+      case 'Transport':
+        return Icons.directions_car_outlined;
 
-    final hasFilter = _hasFilters;
+      case 'Shopping':
+        return Icons.shopping_bag_outlined;
 
-    String title;
-    String subtitle;
-    IconData icon;
+      case 'Bills':
+        return Icons.receipt_long_outlined;
 
-    if (hasSearch || hasFilter) {
-      title = 'No matching expenses';
+      case 'Entertainment':
+        return Icons.movie_outlined;
 
-      subtitle =
-          'Try changing your search or filters.';
+      case 'Health':
+        return Icons.health_and_safety_outlined;
 
-      icon = Icons.search_off;
-    } else if (!hasAnyExpenses) {
-      title = 'No expenses yet';
+      case 'Education':
+        return Icons.school_outlined;
 
-      subtitle =
-          'Start tracking your spending by adding your first expense.';
-
-      icon = Icons.receipt_long;
-    } else {
-      title = 'No expenses';
-
-      subtitle =
-          'There are no expenses to display.';
-
-      icon = Icons.receipt_long;
+      case 'Other':
+      default:
+        return Icons.more_horiz;
     }
-
-    return Center(
-      child: Padding(
-        padding:
-            const EdgeInsets.all(32),
-
-        child: Column(
-          mainAxisAlignment:
-              MainAxisAlignment.center,
-
-          children: [
-            Icon(
-              icon,
-              size: 72,
-              color: Colors.grey,
-            ),
-
-            const SizedBox(
-              height: 20,
-            ),
-
-            Text(
-              title,
-              textAlign: TextAlign.center,
-
-              style: const TextStyle(
-                fontSize: 21,
-                fontWeight:
-                    FontWeight.bold,
-              ),
-            ),
-
-            const SizedBox(
-              height: 8,
-            ),
-
-            Text(
-              subtitle,
-              textAlign: TextAlign.center,
-
-              style: const TextStyle(
-                color: Colors.grey,
-                fontSize: 15,
-              ),
-            ),
-
-            if (!hasSearch &&
-                !hasFilter) ...[
-              const SizedBox(
-                height: 20,
-              ),
-
-              FilledButton.icon(
-                onPressed:
-                    _addExpense,
-
-                icon: const Icon(
-                  Icons.add,
-                ),
-
-                label: const Text(
-                  'Add Expense',
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
   }
 }
